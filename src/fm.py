@@ -17,7 +17,7 @@ class Feature:
                  subfeatures: Optional[Dict[str, 'Feature']] = None):
         self.name = name
         self.feature_type = feature_type
-        self.options = options
+        self.options = options or []
         self.multiple = multiple
         self.subfeatures = subfeatures or {}
 
@@ -30,18 +30,15 @@ class FM:
         self.features: Dict[str, Feature] = {
             # 1. Generator
             'generator': Feature('Generator', 'group', subfeatures={
-                'llm': Feature('LLM', 'select', ['deepseek-reasoner', 'gpt-4o']),
+                'llm': Feature('LLM', 'select', ['deepseek-chat', 'gpt-4o']),
                 'temperature': Feature('Temperature (0-2)', 'input'),
                 'top_p': Feature('Top P (0-1)', 'input'),
+                'samples_per_call': Feature('Samples Per API Call', 'input'),
             }),
             
             # 2. Artifact
             'artifact': Feature('Artifact', 'select', ['Requirements'], subfeatures={
                 'requirements': Feature('Requirements', 'group', subfeatures={
-                    'requirement_type': Feature('Requirement Type', 'select', [
-                        'ExternalInterfaces', 'Functions', 'Performance', 'LogicalDatabase',
-                        'DesignConstraints', 'SystemAttributes'
-                    ], multiple=True),
                     'specification_format': Feature('Specification Format', 'select', [
                         'NL', 'ConstrainedNL', 'UseCase', 'UserStory'
                     ], multiple=True),
@@ -67,6 +64,7 @@ class FM:
             # 4. Output
             'output': Feature('Output', 'group', subfeatures={
                 'output_format': Feature('Output Format', 'select', ['JSON', 'CSV']),
-                'subset_size': Feature('Subset Size', 'input')
+                'subset_size': Feature('Subset Size', 'input'),
             })
         }
+        

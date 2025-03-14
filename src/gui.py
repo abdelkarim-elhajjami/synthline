@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import Dict, Any, List
-
 from llm_client import LLMClient
 from promptline import Promptline
 from output import Output
@@ -10,27 +9,48 @@ from fm import FM, Feature
 
 class GUI:
     """Main GUI class for Synthline application."""
+    def __init__(self, deepseek_key: str, openai_key: str, logger=None) -> None:
+        """Initialize the GUI and all required components."""
+        self._logger = logger
+        
+        try:
+            self._features = FM().features
+            self._llm = LLMClient(deepseek_key, openai_key, logger=logger)
+            self._promptline = Promptline(logger=logger)
+            self._output = Output(logger=logger)
+            self._generator = Generator(
+                self._llm,
+                self._promptline,
+                batch_size=1,
+                logger=logger
+            )
+        except Exception as e:
+            error_msg = f"Failed to initialize components: {e}"
+            if logger:
+                logger.log_error(error_msg, "gui_init")
+            raise RuntimeError(error_msg) from e
+        
+        # GUI state
+        self._feature_widgets = {}
+        self._dynamic_frames = {}
+        
+        # Initialize GUI components
+        self._root = tk.Tk()
+        self._setup_root()
+        self._create_widgets()
     
-    def __init__(self, deepseek_key: str, openai_key: str) -> None:
-        # Core components
-        self._features: Dict[str, Feature] = FM().features
-        self._llm: LLMClient = LLMClient(deepseek_key, openai_key)
-        self._promptline: Promptline = Promptline()
-        self._generator: Generator = Generator(self._llm, self._promptline)
-        self._output: Output = Output()
-        
-        # GUI components
-        self._root: tk.Tk = tk.Tk()
-        self._feature_widgets: Dict[str, Any] = {}
-        self._dynamic_frames: Dict[str, tuple] = {}
-        
+    def _setup_root(self) -> None:
+        """Set up the root window and scrollable canvas"""
         self._root.title("Synthline")
         self._root.geometry("700x800")
         
         # Create canvas with scrollbar
         self._canvas = tk.Canvas(self._root)
-        self._scrollbar = ttk.Scrollbar(self._root, orient="vertical", 
-                                      command=self._canvas.yview)
+        self._scrollbar = ttk.Scrollbar(
+            self._root, 
+            orient="vertical", 
+            command=self._canvas.yview
+        )
         self._scrollable_frame = ttk.Frame(self._canvas)
         
         # Configure canvas
@@ -45,18 +65,17 @@ class GUI:
         self._scrollbar.pack(side="right", fill="y")
         self._canvas.pack(side="left", fill="both", expand=True)
         
-        self._create_widgets()
+        # Bind mousewheel for scrolling
+        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
     
     def _create_widgets(self) -> None:
+        """Create all widgets for the application"""
         main_frame: ttk.Frame = ttk.Frame(self._scrollable_frame, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
         
         # Title
-        row = 0
         heading = ttk.Label(main_frame, text="Synthline", font=('Helvetica', 16, 'bold'))
-        heading.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=10)
-        row += 1
+        heading.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=10)
 
         # Create main sections
         sections = [
@@ -66,16 +85,15 @@ class GUI:
             ('Output', 'output')
         ]
 
+        row = 1
         for section_title, feature_name in sections:
             row = self._create_section(main_frame, section_title, self._features[feature_name], row)
 
         # Status and Generate Button
-        row = self._create_action_section(main_frame, row)
+        self._create_action_section(main_frame, row)
 
     def _create_section(self, parent: ttk.Frame, title: str, feature: Feature, row: int, padding: int = 40) -> int:
-        """
-        Create a section in the GUI for a given feature.
-        """
+        """Create a section in the GUI for a given feature."""
         frame = ttk.Frame(parent)
         frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E))
         
@@ -88,7 +106,7 @@ class GUI:
             heading = ttk.Label(frame, text=title, font=('Helvetica', 14, 'bold'))
             heading.grid(row=0, column=0, sticky=tk.W, pady=10)
             
-            var = tk.StringVar()
+            var = tk.StringVar()  # Create the variable
             widget = ttk.Combobox(frame, textvariable=var, values=feature.options, state="readonly")
             widget.grid(row=0, column=1, sticky=tk.E, pady=10, padx=(0, 20))  # Add right padding
             
@@ -101,6 +119,7 @@ class GUI:
             subfeatures_frame.grid_columnconfigure(0, minsize=200)
             subfeatures_frame.grid_columnconfigure(1, weight=1)
             
+            # Store the StringVar directly, not a reference to it
             self._feature_widgets[feature.name] = var
             self._dynamic_frames[feature.name] = (subfeatures_frame, feature.subfeatures)
             
@@ -117,6 +136,7 @@ class GUI:
 
     def _create_subfeatures(self, parent: ttk.Frame, subfeatures: Dict[str, Feature], 
                            row: int, padding: int = 40) -> int:
+        """Create widgets for subfeatures"""
         if not subfeatures:
             return row
         
@@ -138,16 +158,14 @@ class GUI:
                 container.grid_columnconfigure(1, weight=1)
                 
                 # Add hint for comma-separated inputs
-                if name in ['domain', 'language']:
-                    label_text = f"{subfeature.name} (comma-separated)"
-                else:
-                    label_text = subfeature.name
+                label_text = f"{subfeature.name} (comma-separated)" if name in ['domain', 'language'] else subfeature.name
                 
                 label = ttk.Label(container, text=label_text)
                 label.grid(row=0, column=0, sticky=tk.W, pady=5, padx=(padding, 0))
                 
                 if subfeature.multiple:
                     widget = MultiSelectCombobox(container, subfeature.options)
+                    self._feature_widgets[name] = widget
                 elif subfeature.feature_type == 'select':
                     var = tk.StringVar()
                     widget = ttk.Combobox(container, textvariable=var, values=subfeature.options, state="readonly")
@@ -158,13 +176,12 @@ class GUI:
                     self._feature_widgets[name] = var
                 
                 widget.grid(row=0, column=1, sticky=tk.E, pady=5, padx=(0, 20))
-                if isinstance(widget, MultiSelectCombobox):
-                    self._feature_widgets[name] = widget
                 inner_row += 1
         
         return row + 1
 
     def _on_parent_selected(self, feature_name: str) -> None:
+        """Handle selection of parent feature that has subfeatures"""
         frame, subfeatures = self._dynamic_frames[feature_name]
         selected = self._feature_widgets[feature_name].get().lower()
         
@@ -180,6 +197,7 @@ class GUI:
             frame.grid_remove()
 
     def _create_action_section(self, parent: ttk.Frame, row: int) -> int:
+        """Create the action section with progress bar and generate button"""
         separator: ttk.Separator = ttk.Separator(parent, orient='horizontal')
         separator.grid(row=row, column=0, columnspan=2, sticky="ew", pady=10)
         row += 1
@@ -194,6 +212,10 @@ class GUI:
         self.status_label.grid(row=row, column=0, columnspan=2, pady=5)
         row += 1
 
+        # Configure button style
+        style = ttk.Style()
+        style.configure('Generate.TButton', font=('Helvetica', 11, 'bold'))
+        
         self.generate_btn = ttk.Button(
             parent, 
             text="Generate",
@@ -202,19 +224,17 @@ class GUI:
         )
         self.generate_btn.grid(row=row, column=0, columnspan=2, pady=20)
 
-        style = ttk.Style()
-        style.configure('Generate.TButton', font=('Helvetica', 11, 'bold'))
-        
         return row
-
+    
     def _on_mousewheel(self, event: tk.Event) -> None:
+        """Handle mousewheel scrolling"""
         self._canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
     
     def _get_feature_values(self) -> Dict[str, Any]:
         """Collect all feature values from the GUI widgets."""
         values = {}
         
-        def collect_values(features):
+        def collect_values(features: Dict[str, Feature]) -> None:
             for name, feature in features.items():
                 if feature.subfeatures:
                     collect_values(feature.subfeatures)
@@ -228,7 +248,7 @@ class GUI:
                         value = widget.get().strip()
                         # Handle domain and language as comma-separated lists
                         if name in ['domain', 'language']:
-                            values[name] = [item.strip() for item in value.split(',')]
+                            values[name] = [item.strip() for item in value.split(',') if item.strip()]
                         else:
                             values[name] = value
                             
@@ -244,6 +264,20 @@ class GUI:
                 raise ValueError("Subset size must be a positive integer")
         except ValueError:
             raise ValueError("Subset size must be a valid integer")
+
+        # Validate samples per API call
+        try:
+            samples_per_call = int(values.get('samples_per_call', 1))
+            if samples_per_call <= 0:
+                raise ValueError("Samples per API call must be a positive integer")
+            
+            # Make sure samples_per_call doesn't exceed subset_size
+            if samples_per_call > subset_size:
+                raise ValueError("Samples per API call cannot exceed subset size")
+            
+        except ValueError as e:
+            # Re-raise the specific error message
+            raise ValueError(str(e))
 
         # Validate temperature
         try:
@@ -264,10 +298,11 @@ class GUI:
         # Validate required text fields are not empty
         required_fields = ['domain', 'language', 'label', 'label_description']
         for field in required_fields:
-            if not values[field]:
-                raise ValueError(f"{self._features[field].name} cannot be empty")
+            if not values.get(field):
+                raise ValueError(f"{field.replace('_', ' ').title()} cannot be empty")
 
     def generate(self) -> None:
+        """Generate samples based on the current configuration"""
         try:
             values = self._get_feature_values()
             
@@ -286,7 +321,6 @@ class GUI:
             
             # Generate samples with progress tracking
             samples = self._generator.generate_samples(
-                subset_size=int(values['subset_size']),
                 feature_values=values,
                 progress_callback=update_progress
             )
@@ -296,11 +330,23 @@ class GUI:
             self.generate_btn.configure(state='normal')
             self.status_label.config(text="")
             
-            messagebox.showinfo("Success", f"Generated {len(samples)} requirements\nSaved to: {output_path}")
+            # Check if we had token limit issues
+            if self._generator._fewer_samples_received:
+                messagebox.showinfo(
+                    "Generation Complete", 
+                    f"Generated {len(samples)} samples\n"
+                    f"Note: Some API calls returned fewer samples than requested. "
+                    f"This may be due to token limits. Consider reducing 'Samples Per API Call'.\n\n"
+                    f"Saved to: {output_path}"
+                )
+            else:
+                messagebox.showinfo("Success", f"Generated {len(samples)} requirements\nSaved to: {output_path}")
             
         except Exception as e:
             self.generate_btn.configure(state='normal')
             self.status_label.config(text="")
+            if self._logger:
+                self._logger.log_error(str(e), "gui_generate")
             messagebox.showerror("Error", str(e))
     
     def run(self) -> None:
@@ -308,6 +354,8 @@ class GUI:
         self._root.mainloop()
 
 class MultiSelectCombobox(ttk.Frame):
+    """Custom widget for selecting multiple options from a dropdown"""
+    
     def __init__(self, parent: ttk.Widget, options: List[str], **kwargs: Any) -> None:
         super().__init__(parent)
         self.options: List[str] = options
@@ -337,6 +385,7 @@ class MultiSelectCombobox(ttk.Frame):
         self._update_selection_display()
     
     def _on_select(self, event: tk.Event) -> None:
+        """Handle selection from the combobox"""
         selected: str = self.combo_var.get()
         if selected in self.selections:
             self.selections.remove(selected)  # Deselect if already selected
@@ -346,10 +395,9 @@ class MultiSelectCombobox(ttk.Frame):
         self.combo_var.set('')  # Reset combobox
     
     def _update_selection_display(self) -> None:
-        if self.selections:
-            self.selection_var.set(", ".join(self.selections))
-        else:
-            self.selection_var.set("None selected")
+        """Update the display of selected items"""
+        self.selection_var.set(", ".join(self.selections) if self.selections else "None selected")
     
     def get_selections(self) -> List[str]:
+        """Get the current selections, defaulting to first option if none selected"""
         return self.selections if self.selections else [self.options[0]]

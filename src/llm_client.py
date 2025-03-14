@@ -1,19 +1,19 @@
 import asyncio
 from openai import AsyncOpenAI
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
 
 class LLMClient:
     """Client for interacting with OpenAI and DeepSeek APIs."""
-
-    def __init__(self, deepseek_key: str, openai_key: str):
+    def __init__(self, deepseek_key: str, openai_key: str, logger=None):
         self._deepseek_key = deepseek_key
         self._openai_key = openai_key
         self._deepseek_client = None
         self._openai_client = None
+        self._logger = logger
 
     def _get_client(self, model: str) -> AsyncOpenAI:
         """Get the appropriate client based on the model type."""
-        if model == 'deepseek-reasoner':
+        if model == 'deepseek-chat':
             if not self._deepseek_client:
                 self._deepseek_client = AsyncOpenAI(
                     api_key=self._deepseek_key,
@@ -22,7 +22,7 @@ class LLMClient:
                     max_retries=3
                 )
             return self._deepseek_client
-        else:  # gpt-4o
+        elif model == 'gpt-4o':
             if not self._openai_client:
                 self._openai_client = AsyncOpenAI(
                     api_key=self._openai_key,
@@ -47,10 +47,31 @@ class LLMClient:
                 temperature=temperature,
                 top_p=top_p
             )
-            return completion.choices[0].message.content or ""
+            
+            response = completion.choices[0].message.content or ""
+            
+            if self._logger:
+                self._logger.log_llm_interaction(
+                    prompt=prompt,
+                    response=response,
+                    model=model,
+                    temperature=temperature,
+                    top_p=top_p
+                )
+                
+            return response
+            
         except Exception as e:
-            print(f"Error in agenerate: {e}")
-            return ""
+            error_message = str(e)
+            print(f"Error in LLM call: {error_message}")
+            
+            if self._logger:
+                self._logger.log_error(
+                    error_message, 
+                    "llm", 
+                    {"prompt": prompt, "model": model}
+                )
+            return f"[ERROR: {error_message[:100]}...]"
 
     async def _batch_generate(
         self,
@@ -94,4 +115,11 @@ class LLMClient:
             
         except Exception as e:
             print(f"Error in batch generation: {e}")
-            return [""] * len(prompts)
+            if self._logger:
+                self._logger.log_error(
+                    str(e), 
+                    "llm_batch", 
+                    {"prompts": [p[:100] + "..." for p in prompts], "model": features.get('llm')}
+                )
+            raise RuntimeError(f"LLM generation failed: {str(e)}")
+        
