@@ -9,6 +9,7 @@ from fm import FM, Feature
 
 class GUI:
     """Main GUI class for Synthline application."""
+    
     def __init__(self, deepseek_key: str, openai_key: str, logger=None) -> None:
         """Initialize the GUI and all required components."""
         self._logger = logger
@@ -355,7 +356,7 @@ class GUI:
 
 class MultiSelectCombobox(ttk.Frame):
     """Custom widget for selecting multiple options from a dropdown"""
-    
+
     def __init__(self, parent: ttk.Widget, options: List[str], **kwargs: Any) -> None:
         super().__init__(parent)
         self.options: List[str] = options

@@ -7,6 +7,7 @@ from datetime import datetime
 
 class Output:
     """Handles saving generated data to files in various formats."""
+
     def __init__(self, output_dir: str = "output", logger=None):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -62,4 +63,3 @@ class Output:
     def _save_csv(self, samples: List[Dict[str, Any]], path: Path) -> None:
         """Save data in CSV format."""
         pd.DataFrame(samples).to_csv(path, index=False, encoding='utf-8')
-        

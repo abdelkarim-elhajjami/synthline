@@ -5,22 +5,23 @@ from typing import Any, Dict, Optional
 
 class Logger:
     """Simple logger for Synthline application."""
+    
     def __init__(self, base_dir: str = "logs"):
         """Initialize the logger with directory structure."""
         self.log_dir = Path(base_dir)
         self.log_dir.mkdir(exist_ok=True)
         
-        self.llm_dir = self.log_dir / "llm"
+        self.conversation_dir = self.log_dir / "conversations"
         self.error_dir = self.log_dir / "errors"
         
-        self.llm_dir.mkdir(exist_ok=True)
+        self.conversation_dir.mkdir(exist_ok=True)
         self.error_dir.mkdir(exist_ok=True)
     
-    def log_llm_interaction(self, prompt: str, response: str, 
-                           model: str, temperature: float, top_p: float) -> Path:
-        """Log an LLM interaction (prompt and response)."""
+    def log_conversation(self, prompt: str, completion: str, 
+                       model: str, temperature: float, top_p: float) -> Path:
+        """Log a conversation (prompt and completion)."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        log_file = self.llm_dir / f"interaction_{timestamp}.json"
+        log_file = self.conversation_dir / f"conversation_{timestamp}.json"
         
         log_data = {
             "timestamp": timestamp,
@@ -28,7 +29,7 @@ class Logger:
             "temperature": temperature,
             "top_p": top_p,
             "prompt": prompt,
-            "response": response
+            "completion": completion
         }
         
         self._write_json(log_file, log_data)
@@ -58,4 +59,4 @@ class Logger:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"Error writing log to {file_path}: {e}") 
+            print(f"Error writing log to {file_path}: {e}")

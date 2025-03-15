@@ -1,9 +1,10 @@
 import asyncio
 from openai import AsyncOpenAI
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 
 class LLMClient:
-    """Client for interacting with OpenAI and DeepSeek APIs."""
+    """Client for OpenAI and DeepSeek APIs."""
+    
     def __init__(self, deepseek_key: str, openai_key: str, logger=None):
         self._deepseek_key = deepseek_key
         self._openai_key = openai_key
@@ -12,7 +13,7 @@ class LLMClient:
         self._logger = logger
 
     def _get_client(self, model: str) -> AsyncOpenAI:
-        """Get the appropriate client based on the model type."""
+        """Return the API client for the specified model."""
         if model == 'deepseek-chat':
             if not self._deepseek_client:
                 self._deepseek_client = AsyncOpenAI(
@@ -48,18 +49,18 @@ class LLMClient:
                 top_p=top_p
             )
             
-            response = completion.choices[0].message.content or ""
+            completion = completion.choices[0].message.content
             
             if self._logger:
-                self._logger.log_llm_interaction(
+                self._logger.log_conversation(
                     prompt=prompt,
-                    response=response,
+                    completion=completion,
                     model=model,
                     temperature=temperature,
                     top_p=top_p
                 )
                 
-            return response
+            return completion
             
         except Exception as e:
             error_message = str(e)
@@ -121,5 +122,4 @@ class LLMClient:
                     "llm_batch", 
                     {"prompts": [p[:100] + "..." for p in prompts], "model": features.get('llm')}
                 )
-            raise RuntimeError(f"LLM generation failed: {str(e)}")
-        
+            raise RuntimeError(f"LLM generation failed: {str(e)}")      

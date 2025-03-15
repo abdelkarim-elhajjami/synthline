@@ -11,7 +11,7 @@ class Generator:
     This class handles the generation of synthetic data by:
     1. Flattening multi-select feature configurations into atomic configurations
     2. Distributing sample generation evenly across configurations
-    3. Handling LLM API calls and parsing responses
+    3. Handling LLM API calls and parsing completions
     4. Tracking progress and handling errors transparently
     """
     def __init__(
@@ -213,14 +213,14 @@ class Generator:
         
         prompt = self._promptline.build(config, samples_per_call)
         try:
-            response_list = self._llm.generate([prompt], config)
-            generation = response_list[0] if response_list else ""
+            completion_list = self._llm.generate([prompt], config)
+            generation = completion_list[0] if completion_list else ""
             
             if not generation.strip():
-                print(f"Warning: Empty response received for configuration: {config}")
+                print(f"Warning: Empty completion received for configuration: {config}")
                 return [], 0
                 
-            # Parse the response to extract requirements
+            # Parse the completion to extract requirements
             sample_texts = self._parse_json_samples(generation, samples_per_call)
             
             # Create samples from the extracted texts
@@ -250,7 +250,7 @@ class Generator:
         return sample
     
     def _parse_json_samples(self, text: str, expected_count: int) -> List[str]:
-        """Parse samples from a JSON-formatted response."""
+        """Parse samples from a JSON-formatted completion."""
         # First try: Extract and parse JSON array
         samples = self._try_parse_json_array(text)
         if samples:
