@@ -90,7 +90,11 @@ export default function SynthlineApp() {
       if (ws) ws.close();
       
       // Create new connection
-      ws = new WebSocket(`ws://engine:8000/ws/${connectionId}`);
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/${connectionId}`;
+      
+      console.log('Connecting WebSocket to:', wsUrl);
+      ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
         console.log('WebSocket connected');
