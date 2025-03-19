@@ -1,0 +1,35 @@
+services:
+  engine:
+    build:
+      context: ./engine
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - engine_logs:/engine/logs
+      - engine_output:/engine/output
+    env_file:
+      - ./engine/.env
+    restart: unless-stopped
+
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./web/.env
+    depends_on:
+      engine:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  engine_logs:
+  engine_output:
+
+networks:
+  default:
+    driver: bridge 

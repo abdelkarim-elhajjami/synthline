@@ -1,0 +1,119 @@
+"""
+Logging system for Synthline.
+Provides error and conversation logging functionalities.
+"""
+import json
+from pathlib import Path
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+class Logger:
+    """
+    Simple logger for Synthline application.
+    
+    Records errors and LLM conversations to organized log files.
+    """
+    def __init__(self, base_dir: str = "logs", debug_mode: bool = False):
+        """
+        Initialize the logger.
+        
+        Args:
+            base_dir: Base directory for log files
+            debug_mode: Whether to log detailed conversation data
+        """
+        self.log_dir = Path(base_dir)
+        self.conversation_dir = self.log_dir / "conversations"
+        self.error_dir = self.log_dir / "errors"
+        self.debug_mode = debug_mode
+
+    def log_conversation(self, 
+                        prompt: str, 
+                        completion: str, 
+                        model: str, 
+                        temperature: float, 
+                        top_p: float) -> Optional[Path]:
+        """
+        Log an LLM conversation (prompt and completion).
+        
+        Conversation logs are only written to disk when debug_mode is True.
+        
+        Args:
+            prompt: The input prompt
+            completion: The LLM completion
+            model: The model used
+            temperature: Sampling temperature
+            top_p: Top-p sampling parameter
+            
+        Returns:
+            Path to log file or None if debug_mode is False
+        """
+        if not self.debug_mode:
+            return None
+            
+        self.log_dir.mkdir(exist_ok=True, parents=True)
+        self.conversation_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        log_file = self.conversation_dir / f"conversation_{timestamp}.json"
+        
+        log_data = {
+            "timestamp": timestamp,
+            "model": model,
+            "temperature": temperature,
+            "top_p": top_p,
+            "prompt": prompt,
+            "completion": completion
+        }
+        
+        self._write_json(log_file, log_data)
+        return log_file
+    
+    def log_error(self, 
+                 error_msg: str, 
+                 component: str, 
+                 context: Optional[Dict[str, Any]] = None) -> Path:
+        """
+        Log an error from any component.
+        
+        Args:
+            error_msg: Error message
+            component: Component name where error occurred
+            context: Additional contextual information
+            
+        Returns:
+            Path to the error log file
+        """
+        self.log_dir.mkdir(exist_ok=True, parents=True)
+        self.error_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        log_file = self.error_dir / f"{component}_error_{timestamp}.json"
+        
+        log_data = {
+            "timestamp": timestamp,
+            "component": component,
+            "error": error_msg
+        }
+        
+        if context:
+            # Convert all values to strings to ensure JSON serialization
+            log_data["context"] = {k: str(v) for k, v in context.items()}
+        
+        self._write_json(log_file, log_data)
+        return log_file
+    
+    def _write_json(self, file_path: Path, data: Dict[str, Any]) -> None:
+        """
+        Write JSON data to a file with error handling.
+        
+        Args:
+            file_path: Path to write the file
+            data: Dictionary to serialize as JSON
+            
+        Raises:
+            IOError: If file cannot be written
+        """
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error writing log to {file_path}: {e}")
+            # We don't re-raise here to avoid crashing if logging fails

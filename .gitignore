@@ -1,0 +1,39 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+.yarn/*
+!.yarn/releases
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+dist/
+build/
+
+# Next.js
+.next/
+out/
+
+# Environment variables
+.env
+
+# Application specific
+output/
+logs/
+
+# System files
+.DS_Store
+
+# Editor files
+.idea/
+.vscode/
+*.swp
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts

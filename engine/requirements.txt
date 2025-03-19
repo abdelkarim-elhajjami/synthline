@@ -1,0 +1,5 @@
+openai>=1.12.0
+pandas>=2.0.0
+fastapi
+uvicorn
+websockets
