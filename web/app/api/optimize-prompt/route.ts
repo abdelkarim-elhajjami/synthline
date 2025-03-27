@@ -4,7 +4,8 @@ import { handleApiError } from '@/lib/api-utils';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const response = await fetch('http://engine:8000/preview-prompt', {
+    
+    const response = await fetch('http://engine:8000/optimize-prompt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -12,7 +13,7 @@ export async function POST(request: Request) {
     
     if (!response.ok) {
       const errorText = await response.text();
-      let errorDetail = 'Failed to generate prompt preview';
+      let errorDetail = 'Prompt optimization failed';
       
       try {
         const errorData = JSON.parse(errorText);
@@ -21,18 +22,18 @@ export async function POST(request: Request) {
         errorDetail = errorText || errorDetail;
       }
       
-      console.error('Preview error:', errorDetail);
-      
       return NextResponse.json(
         { error: errorDetail },
         { status: response.status }
       );
     }
     
-    const data = await response.json();
-    return NextResponse.json(data);
+    // Return success immediately - the actual results will come via WebSocket
+    return NextResponse.json({ 
+      success: true, 
+      message: "Optimization running. Updates via WebSocket." 
+    });
   } catch (error) {
-    console.error('Preview exception:', error);
-    return handleApiError(error, 'Failed to generate prompt preview');
+    return handleApiError(error, 'Failed to optimize prompt');
   }
-}
+} 

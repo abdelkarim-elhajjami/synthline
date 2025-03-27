@@ -38,8 +38,8 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
+ENV HOSTNAME=0.0.0.0
 ENV NODE_ENV=production
-ENV PORT=3000
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs && \
@@ -62,7 +62,7 @@ EXPOSE 3000
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://0.0.0.0:3000/ || exit 1
 
 # Command to run the application
 CMD ["node", "server.js"] 

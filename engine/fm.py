@@ -62,6 +62,9 @@ class FM:
                 'temperature': Feature('Temperature', 'input'),
                 'top_p': Feature('Top P', 'input'),
                 'samples_per_prompt': Feature('Samples Per Prompt', 'input'),
+                'prompt_approach': Feature('Prompt Approach', 'select', ['Default', 'PACE']),
+                'pace_iterations': Feature('PACE Iterations', 'input'),
+                'pace_actors': Feature('PACE Actors', 'input'),
             }),
             
             # Output

@@ -13,7 +13,7 @@ class Logger:
     
     Records errors and LLM conversations to organized log files.
     """
-    def __init__(self, base_dir: str = "logs", debug_mode: bool = False):
+    def __init__(self, base_dir: str = "logs", debug_mode: bool = True):
         """
         Initialize the logger.
         
@@ -96,6 +96,68 @@ class Logger:
         if context:
             # Convert all values to strings to ensure JSON serialization
             log_data["context"] = {k: str(v) for k, v in context.items()}
+        
+        self._write_json(log_file, log_data)
+        return log_file
+    
+    def log_prompt(self, 
+                   prompt: str, 
+                   updated_prompt: Optional[str] = None,
+                   feedback: Optional[str] = None,
+                   score: Optional[float] = None,
+                   iteration: Optional[int] = None) -> Path:
+        """
+        Log prompt optimization details.
+        
+        Args:
+            prompt: The current prompt
+            updated_prompt: The updated prompt (if available)
+            feedback: Critic feedback (if available)
+            score: Prompt score (if available)
+            iteration: Current optimization iteration
+            
+        Returns:
+            Path to the log file
+        """
+        self.log_dir.mkdir(exist_ok=True, parents=True)
+        prompt_dir = self.log_dir / "prompts"
+        prompt_dir.mkdir(exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        iter_tag = f"_iter{iteration}" if iteration is not None else ""
+        
+        # Determine log type based on provided data
+        log_type = "prompt"
+        if feedback and not updated_prompt and score is None:
+            log_type = "critic"
+        elif updated_prompt:
+            log_type = "update"
+        elif score is not None:
+            log_type = "eval"
+        
+        # Special case for the best prompt
+        if feedback == "NEW BEST PROMPT":
+            log_type = "best"
+        elif feedback == "FINAL OPTIMIZED PROMPT":
+            log_type = "final"
+        
+        log_file = prompt_dir / f"{log_type}{iter_tag}_{timestamp}.json"
+        
+        log_data = {
+            "timestamp": timestamp,
+            "iteration": iteration,
+            "type": log_type,
+            "prompt": prompt
+        }
+        
+        if updated_prompt is not None:
+            log_data["updated_prompt"] = updated_prompt
+        
+        if feedback is not None:
+            log_data["feedback"] = feedback
+        
+        if score is not None:
+            log_data["score"] = float(score)
         
         self._write_json(log_file, log_data)
         return log_file

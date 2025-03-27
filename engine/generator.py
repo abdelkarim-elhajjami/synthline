@@ -44,27 +44,30 @@ class Generator:
         self._fewer_samples_received = False
 
     async def generate_samples(
-        self, 
-        feature_values: Dict[str, Any], 
-        progress_callback: ProgressCallback = None
+        self,
+        feature_values: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], Awaitable[None]]] = None,
+        optimized_prompt: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Generate synthetic data samples based on provided configuration.
+        Generate synthetic requirements based on feature configuration.
         
         Args:
             feature_values: Dictionary of feature settings
             progress_callback: Optional callback for reporting progress
+            optimized_prompt: Optional optimized prompt from PACE
             
         Returns:
-            List of generated sample dictionaries
+            List of generated samples as dictionaries
         """
-        config = feature_values.copy()
+        if optimized_prompt:
+            feature_values = {**feature_values, 'optimized_prompt': optimized_prompt}
         
         all_samples = []
         self._fewer_samples_received = False
         
-        total_samples = int(config.get('total_samples'))
-        samples_per_prompt = int(config.get('samples_per_prompt'))
+        total_samples = int(feature_values.get('total_samples'))
+        samples_per_prompt = int(feature_values.get('samples_per_prompt'))
         
         # Generate samples until we have enough
         while len(all_samples) < total_samples:
@@ -73,7 +76,7 @@ class Generator:
             
             # Generate samples
             new_samples, received_count = await self._generate_for_config(
-                config=config,
+                config=feature_values,
                 samples_needed=samples_needed,
                 samples_per_prompt=request_count
             )
@@ -87,7 +90,7 @@ class Generator:
                     self._logger.log_error(
                         f"Received fewer samples than requested ({received_count}/{request_count}), likely due to output token limit.",
                         "generator",
-                        {"config": config}
+                        {"config": feature_values}
                     )
             
             # Add new samples to our collection
@@ -135,7 +138,13 @@ class Generator:
         new_samples = []
         sample_texts = []
         
-        prompt = self._promptline.build(config, samples_per_prompt)
+        # Check if we have an optimized prompt
+        optimized_prompt = config.get('optimized_prompt')
+        if optimized_prompt:
+            prompt = optimized_prompt
+        else:
+            prompt = self._promptline.build(config, samples_per_prompt)
+        
         try:
             completion_list = await self._llm.generate([prompt], config)
             generation = completion_list[0] if completion_list else ""

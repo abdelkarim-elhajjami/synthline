@@ -15,7 +15,7 @@ class Promptline:
     
     # Template for generating a single requirement
     SINGLE_TEMPLATE = '''Generate a requirement that:
-1. Is classified as {label} (Definition: {label_definition}).
+1. Is {label} (Definition: {label_definition}).
 2. Is written in {language}.
 3. Pertains to a {domain} system.
 4. Is written from the perspective of {stakeholder}.
@@ -25,8 +25,8 @@ class Promptline:
 IMPORTANT: Generate only the requirement text without additional formatting. No additional text or explanation.'''
     
     # Template for generating multiple requirements
-    MULTI_TEMPLATE = '''Generate {count} different requirements that:
-1. Are classified as {label} (Definition: {label_definition}).
+    MULTI_TEMPLATE = '''Generate {count} diverse requirements that:
+1. Are {label} (Definition: {label_definition}).
 2. Are written in {language}.
 3. Pertain to a {domain} system.
 4. Are written from the perspective of {stakeholder}.

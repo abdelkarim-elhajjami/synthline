@@ -27,6 +27,9 @@ interface FormData {
   specification_format: string;
   specification_level: string;
   stakeholder: string;
+  prompt_approach: string;
+  pace_iterations: number;
+  pace_actors: number;
 }
 
 interface Sample {
@@ -42,13 +45,17 @@ interface Results {
   fewer_samples_received?: boolean;
 }
 
-// Constants for form options
+// Constants
 const SPECIFICATION_FORMATS = ["NL", "Constrained NL", "Use Case", "User Story"];
 const SPECIFICATION_LEVELS = ["High", "Detailed"];
 const STAKEHOLDERS = ["End Users", "Business Managers", "Developers", "Regulatory Bodies"];
 const LLM_OPTIONS = [
   { value: "gpt-4o", label: "gpt-4o" },
   { value: "deepseek-chat", label: "deepseek-chat" }
+];
+const REQUIRED_FIELDS: (keyof FormData)[] = [
+  'label', 'label_definition', 'domain', 'language',
+  'specification_format', 'specification_level', 'stakeholder'
 ];
 
 export default function SynthlineApp() {
@@ -67,6 +74,9 @@ export default function SynthlineApp() {
     specification_format: "",
     specification_level: "",
     stakeholder: "",
+    prompt_approach: "Default",
+    pace_iterations: 3,
+    pace_actors: 2
   };
 
   // State
@@ -74,153 +84,194 @@ export default function SynthlineApp() {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState("");
   const [currentPrompt, setCurrentPrompt] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
   const [error, setError] = useState("");
   const [results, setResults] = useState<Results | null>(null);
   const [connectionId] = useState(() => uuidv4());
+  const [optimizationSuccess, setOptimizationSuccess] = useState<string | null>(null);
+  const [optimizedPrompt, setOptimizedPrompt] = useState<string | null>(null);
   
   // WebSocket handling
   useEffect(() => {
-    let reconnectAttempt = 0;
-    let ws: WebSocket | null = null;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/${connectionId}`;
+    const ws = new WebSocket(wsUrl);
     
-    const connectWebSocket = () => {
-      // Close existing connection if any
-      if (ws) ws.close();
-      
-      // Create new connection
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/${connectionId}`;
-      
-      console.log('Connecting WebSocket to:', wsUrl);
-      ws = new WebSocket(wsUrl);
-      
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        reconnectAttempt = 0; // Reset reconnect counter on successful connection
-      };
-      
-      ws.onmessage = (event) => {
-        try {
-          console.log('WebSocket message received:', event.data); // Add for debugging
-          const data = JSON.parse(event.data);
-          if (data.type === 'progress') {
-            console.log(`Progress update: ${data.progress}%`);
-            setProgress(data.progress);
-          } else if (data.type === 'complete') {
-            setProgress(100);
-          }
-        } catch (e) {
-          console.error('Error parsing WebSocket message:', e);
-        }
-      };
-      
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
         
-        // Only attempt to reconnect if we haven't tried too many times
-        if (reconnectAttempt < 5) {
-          reconnectAttempt++;
-          setTimeout(connectWebSocket, 1000); // Wait 1 second before reconnecting
+        switch (data.type) {
+          case 'progress':
+            setProgress(data.progress);
+            break;
+          
+          case 'prompt_update':
+            setCurrentPrompt(data.prompt);
+            break;
+          
+          case 'optimize_complete':
+            setIsOptimizingPrompt(false);
+            setProgress(100);
+            
+            // Parse and store the optimized prompt
+            let optimizedPrompt = data.optimized_prompt;
+            
+            // Try to parse as JSON if it appears to be JSON
+            if (typeof optimizedPrompt === 'string' && 
+                optimizedPrompt.trim().startsWith('{') && 
+                optimizedPrompt.trim().endsWith('}')) {
+              try {
+                const parsedData = JSON.parse(optimizedPrompt);
+                if (parsedData.prompt) {
+                  optimizedPrompt = parsedData.prompt;
+                }
+              } catch (e) {
+                console.error("Failed to parse optimized_prompt as JSON:", e);
+              }
+            }
+            
+            setCurrentPrompt(optimizedPrompt);
+            setOptimizedPrompt(optimizedPrompt); // Store it in state
+            setOptimizationSuccess(`Prompt optimization complete!`);
+            setTimeout(() => setOptimizationSuccess(null), 10000);
+            break;
+          
+          case 'error':
+            setError(data.message);
+            setIsOptimizingPrompt(false);
+            break;
+          
+          case 'complete':
+            setProgress(100);
+            break;
         }
-      };
-      
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-    };
-    
-    // Initial connection
-    connectWebSocket();
-    
-    // Cleanup
-    return () => {
-      if (ws) {
-        ws.close();
+      } catch (error) {
+        console.error("WebSocket message parsing error:", error, event.data);
       }
     };
+    
+    return () => ws.close();
   }, [connectionId]);
 
-  // Handlers
-  const handleInputChange = <K extends keyof FormData>(field: K, value: FormData[K]) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const validateRequiredFields = (fields: Array<keyof FormData>): string => {
-    const missingFields = fields.filter(field => !formData[field]);
-    return missingFields.length > 0 
-      ? `Please fill in: ${missingFields.join(', ')}` 
-      : '';
-  };
-
-  const handlePreviewPrompt = async () => {
-    const previewRequired: Array<keyof FormData> = [
-      'label', 'label_definition', 'domain', 'language', 
-      'specification_format', 'specification_level', 'stakeholder'
-    ];
-    
-    const errorMessage = validateRequiredFields(previewRequired);
-    if (errorMessage) {
-      setError(errorMessage);
-      return;
+  // Automatic prompt preview
+  useEffect(() => {
+    const missingFields = REQUIRED_FIELDS.filter(field => !formData[field]);
+    if (missingFields.length === 0) {
+      generatePromptPreview();
+    } else {
+      setCurrentPrompt("");
     }
-    
-    setPreviewLoading(true);
-    setError('');
-    
+  }, [
+    formData.label, 
+    formData.label_definition, 
+    formData.domain, 
+    formData.language,
+    formData.specification_format, 
+    formData.specification_level, 
+    formData.stakeholder,
+    formData.samples_per_prompt
+  ]);
+
+  const generatePromptPreview = async () => {
     try {
       const response = await fetch('/api/preview-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          feature_values: {
-            ...formData,
-            count: formData.samples_per_prompt
-          }
-        })
+        body: JSON.stringify({ feature_values: formData })
       });
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate prompt preview');
+        console.error('Preview generation failed:', errorData);
+        return;
       }
       
       const data = await response.json();
       setCurrentPrompt(data.prompt);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate prompt preview');
-    } finally {
-      setPreviewLoading(false);
+      console.error('Preview generation failed:', err);
     }
   };
 
-  const handleGenerate = async () => {
-    const requiredFields: Array<keyof FormData> = [
-      'label', 'label_definition', 'domain', 'language',
-      'specification_format', 'specification_level', 'stakeholder'
-    ];
-    
-    const errorMessage = validateRequiredFields(requiredFields);
+  // Handlers
+  const validateForm = (): string => {
+    const missingFields = REQUIRED_FIELDS.filter(field => !formData[field]);
+    return missingFields.length > 0 
+      ? `Please fill in: ${missingFields.join(', ')}` 
+      : '';
+  };
+  
+  const handleInputChange = <K extends keyof FormData>(field: K, value: FormData[K]) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleOptimizePrompt = async () => {
+    const errorMessage = validateForm();
     if (errorMessage) {
       setError(errorMessage);
       return;
     }
     
+    setIsOptimizingPrompt(true);
     setResults(null);
-    setIsLoading(true);
-    setStatus("Generating...");
     setError("");
     setProgress(0);
+    setStatus("Optimizing...");
     
     try {
-      const response = await fetch('/api/generate', {
+      const response = await fetch('/api/optimize-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           feature_values: formData,
           connection_id: connectionId
         })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Prompt optimization failed');
+      }
+      
+      // The actual results will come via WebSocket,
+      // so we just acknowledge that the optimization is running
+      await response.json();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred during prompt optimization');
+      setIsOptimizingPrompt(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    const errorMessage = validateForm();
+    if (errorMessage) {
+      setError(errorMessage);
+      return;
+    }
+    
+    setResults(null);
+    setIsGenerating(true);
+    setStatus("Generating...");
+    setError("");
+    setProgress(0);
+    
+    try {
+      // Include optimizedPrompt if available
+      const requestData = {
+        feature_values: {
+          ...formData,
+          // Include the optimized prompt if available and PACE was used
+          optimized_prompt: formData.prompt_approach === "PACE" && optimizedPrompt ? optimizedPrompt : undefined
+        },
+        connection_id: connectionId
+      };
+      
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
       });
       
       if (!response.ok) {
@@ -239,7 +290,7 @@ export default function SynthlineApp() {
       setError(err instanceof Error ? err.message : 'An error occurred during generation');
       setStatus("Generation failed");
     } finally {
-      setIsLoading(false);
+      setIsGenerating(false);
     }
   };
 
@@ -248,7 +299,7 @@ export default function SynthlineApp() {
     window.open(`/api/download?path=${encodeURIComponent(results.output_path)}`, '_blank');
   };
 
-  // Component to render option buttons to reduce repetition
+  // Component to render option buttons
   const OptionButtons = ({ 
     options, 
     selected, 
@@ -266,13 +317,13 @@ export default function SynthlineApp() {
             ? "bg-[#8A2BE2] border-[#8A2BE2] text-white" 
             : "bg-[#1A1A1A] border-[#2A2A2A] text-zinc-300 hover:bg-[#222222] hover:border-[#8A2BE2]";
           
-          const disabledClass = isLoading ? 'opacity-50 pointer-events-none' : '';
+          const disabledClass = isGenerating || isOptimizingPrompt ? 'opacity-50 pointer-events-none' : '';
           
           return (
             <div
               key={item}
               className={`border rounded-lg px-4 py-2 text-sm cursor-pointer transition-colors ${selectedClass} ${disabledClass}`}
-              onClick={isLoading ? undefined : () => handleInputChange(fieldName, item)}
+              onClick={() => handleInputChange(fieldName, item)}
             >
               {item}
             </div>
@@ -286,10 +337,17 @@ export default function SynthlineApp() {
     <div className="min-h-screen bg-[#0A0A0A] text-white">
       <div className="container mx-auto py-8 max-w-5xl">
         {/* Header */}
-        <header className="mb-12 text-center">
+        <header className="mb-6 text-center">
           <h1 className="text-6xl font-bold mb-2 text-[#8A2BE2]">Synthline</h1>
           <p className="text-zinc-400 text-xl">Generate High-Quality Synthetic Data for Requirements Engineering</p>
         </header>
+
+        {/* Error message */}
+        {error && (
+          <div className="bg-red-900/30 border border-red-500 text-red-200 p-4 rounded-md mb-6 sticky top-2 z-10">
+            {error}
+          </div>
+        )}
 
         <div className="space-y-6">
           {/* Classification */}
@@ -306,7 +364,7 @@ export default function SynthlineApp() {
                     value={formData.label}
                     onChange={(e) => handleInputChange('label', e.target.value)}
                     required
-                    disabled={isLoading}
+                    disabled={isGenerating || isOptimizingPrompt}
                   />
                 </div>
                 <div className="space-y-2">
@@ -318,7 +376,7 @@ export default function SynthlineApp() {
                     value={formData.label_definition}
                     onChange={(e) => handleInputChange('label_definition', e.target.value)}
                     required
-                    disabled={isLoading}
+                    disabled={isGenerating || isOptimizingPrompt}
                   />
                 </div>
               </div>
@@ -375,7 +433,7 @@ export default function SynthlineApp() {
                       value={formData.domain}
                       onChange={(e) => handleInputChange('domain', e.target.value)}
                       required
-                      disabled={isLoading}
+                      disabled={isGenerating || isOptimizingPrompt}
                     />
                   </div>
                   <div className="space-y-2">
@@ -387,7 +445,7 @@ export default function SynthlineApp() {
                       value={formData.language}
                       onChange={(e) => handleInputChange('language', e.target.value)}
                       required
-                      disabled={isLoading}
+                      disabled={isGenerating || isOptimizingPrompt}
                     />
                   </div>
                 </div>
@@ -407,7 +465,7 @@ export default function SynthlineApp() {
                 <Select 
                   value={formData.llm} 
                   onValueChange={(value) => handleInputChange('llm', value)}
-                  disabled={isLoading}
+                  disabled={isGenerating || isOptimizingPrompt}
                 >
                   <SelectTrigger className="bg-[#1A1A1A] border-[#2A2A2A] text-white">
                     <SelectValue placeholder="Select Model" />
@@ -432,7 +490,7 @@ export default function SynthlineApp() {
                     max={2} 
                     step={0.1} 
                     className="py-4"
-                    disabled={isLoading}
+                    disabled={isGenerating || isOptimizingPrompt}
                   />
                   <p className="text-xs text-zinc-500">Controls randomness (0=deterministic, 2=random)</p>
                 </div>
@@ -448,7 +506,7 @@ export default function SynthlineApp() {
                     max={1} 
                     step={0.1} 
                     className="py-4"
-                    disabled={isLoading}
+                    disabled={isGenerating || isOptimizingPrompt}
                   />
                   <p className="text-xs text-zinc-500">Controls diversity (0=focused, 1=diverse)</p>
                 </div>
@@ -459,39 +517,119 @@ export default function SynthlineApp() {
               <Label className="text-white mb-4 block text-base font-medium">Prompt Settings</Label>
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <Label className="text-white text-base font-medium">Samples Per Prompt</Label>
+                  <Label className="text-white text-sm font-medium">Samples Per Prompt</Label>
                   <Input
                     type="number"
                     className="bg-[#1A1A1A] border-[#2A2A2A] text-white"
                     value={formData.samples_per_prompt}
-                    onChange={(e) => handleInputChange('samples_per_prompt', Number(e.target.value))}
+                    onChange={(e) => handleInputChange('samples_per_prompt', Math.max(1, Number(e.target.value)))}
+                    min={1}
                     required
-                    disabled={isLoading}
+                    disabled={isGenerating || isOptimizingPrompt}
                   />
                   <p className="text-xs text-zinc-500">Specify the number of samples to generate per prompt</p>
                 </div>
 
                 <div className="h-px bg-[#2A2A2A] my-4"></div>
 
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <Label className="text-white text-base font-medium">Prompt Preview</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="bg-[#1A1A1A] border-[#2A2A2A] text-zinc-300 hover:bg-[#222222] hover:text-white"
-                      onClick={handlePreviewPrompt}
-                      disabled={previewLoading || isLoading}
+                <div className="space-y-2">
+                  <Label className="text-white text-sm font-medium">Prompt Approach</Label>
+                  <div className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg p-4">
+                    <RadioGroup 
+                      value={formData.prompt_approach}
+                      onValueChange={(value) => handleInputChange('prompt_approach', value)}
+                      className="space-y-2"
+                      disabled={isGenerating || isOptimizingPrompt}
                     >
-                      {previewLoading ? 'Loading...' : 'Preview'}
-                    </Button>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="Default" id="default" className="text-[#8A2BE2]" />
+                        <Label htmlFor="default" className="text-white">Default</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="PACE" id="pace" className="text-[#8A2BE2]" />
+                        <Label htmlFor="pace" className="text-white">PACE Optimization</Label>
+                      </div>
+                    </RadioGroup>
                   </div>
+                </div>
+
+                {formData.prompt_approach === "PACE" && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label className="text-white">Iterations</Label>
+                        <span className="text-zinc-400 text-sm">{formData.pace_iterations}</span>
+                      </div>
+                      <Slider 
+                        value={[formData.pace_iterations]} 
+                        onValueChange={(values) => handleInputChange('pace_iterations', values[0])} 
+                        min={1}
+                        max={10} 
+                        step={1} 
+                        className="py-4"
+                        disabled={isGenerating || isOptimizingPrompt}
+                      />
+                      <p className="text-xs text-zinc-500">More iterations may yield better prompts but take longer</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label className="text-white">Actor-Critic Pairs</Label>
+                        <span className="text-zinc-400 text-sm">{formData.pace_actors}</span>
+                      </div>
+                      <Slider 
+                        value={[formData.pace_actors]} 
+                        onValueChange={(values) => handleInputChange('pace_actors', values[0])} 
+                        min={1}
+                        max={10} 
+                        step={1} 
+                        className="py-4"
+                        disabled={isGenerating || isOptimizingPrompt}
+                      />
+                      <p className="text-xs text-zinc-500">More pairs provide diverse feedback but increase costs</p>
+                    </div>
+
+                    <Button 
+                      onClick={handleOptimizePrompt}
+                      disabled={isOptimizingPrompt || isGenerating}
+                      className="w-full bg-[#8A2BE2] hover:bg-opacity-80 text-white"
+                    >
+                      {isOptimizingPrompt ? "Optimizing..." : "Optimize Prompt"}
+                    </Button>
+
+                    {/* Progress bar for optimization */}
+                    {isOptimizingPrompt && (
+                      <div className="space-y-2">
+                        <div className="flex justify-end">
+                          <span className="text-sm font-medium text-white">{Math.round(progress)}%</span>
+                        </div>
+                        <Progress value={progress} className="h-2 bg-[#2A2A2A]" />
+                      </div>
+                    )}
+                    
+                    {/* Optimization success notification */}
+                    {optimizationSuccess && (
+                      <div className="bg-green-900/30 border border-green-500 text-green-200 p-3 rounded-md">
+                        {optimizationSuccess}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <Label className="text-white text-sm font-medium">Prompt Preview</Label>
                   <Textarea
                     value={currentPrompt}
-                    readOnly
                     className="bg-[#1A1A1A] border-[#2A2A2A] text-white h-40 resize-none"
-                    placeholder="Click 'Preview' to see the prompt based on your configuration"
+                    placeholder="Prompt preview once all required fields are filled"
+                    readOnly
+                    disabled={isGenerating || isOptimizingPrompt}
                   />
+                  <p className="text-xs text-zinc-500 mt-2 italic">
+                  {formData.prompt_approach === "PACE" 
+                      ? "This is the optimized prompt that will be used for generation"
+                      : "This prompt will be used for generation"}
+                  </p>
                 </div>
               </div>
             </Card>
@@ -512,7 +650,7 @@ export default function SynthlineApp() {
                     value={formData.total_samples}
                     onChange={(e) => handleInputChange('total_samples', Number(e.target.value))}
                     required
-                    disabled={isLoading}
+                    disabled={isGenerating || isOptimizingPrompt}
                   />
                 </div>
 
@@ -523,7 +661,7 @@ export default function SynthlineApp() {
                       value={formData.output_format} 
                       onValueChange={(value) => handleInputChange('output_format', value as "CSV" | "JSON")} 
                       className="flex space-x-4"
-                      disabled={isLoading}
+                      disabled={isGenerating || isOptimizingPrompt}
                     >
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="JSON" id="json" className="text-[#8A2BE2]" />
@@ -540,25 +678,18 @@ export default function SynthlineApp() {
             </Card>
           </section>
 
-          {/* Error message */}
-          {error && (
-            <div className="bg-red-900/30 border border-red-500 text-red-200 p-4 rounded-md">
-              {error}
-            </div>
-          )}
-
           {/* Action Buttons */}
           <div className="space-y-4">
             <Button
               onClick={handleGenerate}
-              disabled={isLoading}
+              disabled={isGenerating || isOptimizingPrompt}
               className="w-full py-6 text-lg font-medium bg-[#8A2BE2] hover:bg-opacity-80 text-white transition-all"
             >
-              {isLoading ? 'Generating...' : 'Generate Data'}
+              {isGenerating ? 'Generating...' : 'Generate Data'}
             </Button>
 
             {/* Progress bar with percentage */}
-            {isLoading && (
+            {isGenerating && (
               <div className="space-y-2">
                 <div className="flex justify-end">
                   <span className="text-sm font-medium text-white">{Math.round(progress)}%</span>
@@ -568,7 +699,7 @@ export default function SynthlineApp() {
             )}
           </div>
 
-          {/* Results Area */}
+          {/* Results */}
           {results && (
             <Card className="bg-[#121212] border-[#1E1E1E] overflow-hidden shadow-md">
               <div className="border-b border-[#2A2A2A] p-4">
@@ -577,7 +708,7 @@ export default function SynthlineApp() {
 
               <div className="p-6">
                 <div className="bg-[#1A1A1A] border-[#2A2A2A] p-4 rounded">
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center mb-4">
                     <div>
                       <p className="text-white">{status}</p>
                       <p className="text-zinc-400 text-sm">Output saved to: {results.output_path}</p>
