@@ -228,7 +228,7 @@ async def run_optimization(
         if websocket:
             await websocket.send_json({
                 "type": "optimize_complete",
-                "optimized_prompt": pace_optimizer._clean_prompt(optimized_prompt),
+                "optimized_prompt": optimized_prompt,
                 "score": float(score)
             })
     

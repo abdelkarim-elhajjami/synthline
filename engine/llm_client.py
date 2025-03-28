@@ -4,7 +4,7 @@ Supports OpenAI and DeepSeek APIs through a unified interface.
 """
 import asyncio
 from typing import Any, Dict, List, Optional
-from openai import AsyncOpenAI
+from openai import AsyncClient
 
 
 class LLMClient:
@@ -37,7 +37,7 @@ class LLMClient:
         self._request_timeout = 120  # seconds
         self._max_retries = 3
 
-    def _get_client(self, model: str) -> AsyncOpenAI:
+    def _get_client(self, model: str) -> AsyncClient:
         """
         Return the API client for the specified model.
         
@@ -45,7 +45,7 @@ class LLMClient:
             model: The model identifier ('deepseek-chat' or 'gpt-4o')
             
         Returns:
-            An initialized AsyncOpenAI client
+            An initialized AsyncClient
             
         Raises:
             ValueError: If the API key is missing for the requested model
@@ -58,7 +58,7 @@ class LLMClient:
                 raise ValueError(error_msg)
                 
             if not self._deepseek_client:
-                self._deepseek_client = AsyncOpenAI(
+                self._deepseek_client = AsyncClient(
                     api_key=self._deepseek_key,
                     base_url="https://api.deepseek.com",
                     timeout=self._request_timeout,
@@ -74,7 +74,7 @@ class LLMClient:
                 raise ValueError(error_msg)
                 
             if not self._openai_client:
-                self._openai_client = AsyncOpenAI(
+                self._openai_client = AsyncClient(
                     api_key=self._openai_key,
                     timeout=self._request_timeout,
                     max_retries=self._max_retries
@@ -140,34 +140,6 @@ class LLMClient:
             # Re-raise to allow caller to handle the error
             raise
 
-    async def _batch_generate(self,
-                             prompts: List[str],
-                             model: str,
-                             temperature: float, 
-                             top_p: float) -> List[str]:
-        """
-        Generate text from multiple prompts in parallel.
-        
-        Args:
-            prompts: List of input prompts
-            model: Model to use for generation
-            temperature: Sampling temperature
-            top_p: Nucleus sampling parameter
-            
-        Returns:
-            List of generated completion texts
-        """
-        tasks = [
-            self._agenerate(
-                prompt=prompt,
-                model=model,
-                temperature=temperature,
-                top_p=top_p
-            )
-            for prompt in prompts
-        ]
-        return await asyncio.gather(*tasks, return_exceptions=True)
-
     async def generate(self,
                       prompts: List[str],
                       features: Dict[str, Any]) -> List[str]:
@@ -185,34 +157,31 @@ class LLMClient:
             RuntimeError: If generation fails
         """
         try:
-            # Extract parameters from features
             model = features['llm']
             temperature = float(features['temperature'])
             top_p = float(features['top_p'])
             
-            # Generate completions
-            results = await self._batch_generate(
-                prompts=prompts,
-                model=model,
-                temperature=temperature,
-                top_p=top_p
-            )
-            
-            # Handle any exceptions returned
-            processed_results = []
-            for result in results:
-                if isinstance(result, Exception):
+            results = []
+            for prompt in prompts:
+                try:
+                    result = await self._agenerate(
+                        prompt=prompt,
+                        model=model,
+                        temperature=temperature,
+                        top_p=top_p
+                    )
+                    results.append(result)
+                except Exception as e:
+                    results.append(f"[ERROR: {str(e)[:100]}...]")
+                    
                     if self._logger:
                         self._logger.log_error(
-                            str(result), 
+                            str(e), 
                             "llm_batch", 
                             {"model": model}
                         )
-                    processed_results.append(f"[ERROR: {str(result)[:100]}...]")
-                else:
-                    processed_results.append(result)
-                    
-            return processed_results
+                        
+            return results
             
         except Exception as e:
             print(f"Error in batch generation: {e}")

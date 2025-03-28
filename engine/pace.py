@@ -4,10 +4,11 @@ https://aclanthology.org/2024.findings-acl.436/
 """
 import asyncio
 from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
-import torch
+
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from transformers import AutoTokenizer, AutoModel
+import torch
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_distances
 
 from llm_client import LLMClient
 
@@ -135,7 +136,7 @@ class PACE:
                     # Score the output: s_(t+1) = s(a_(t+1))
                     next_score = self._evaluate_prompt(
                         new_actions, 
-                        feature_values.get('samples_per_prompt', 1)
+                        feature_values.get('samples_per_prompt', 1),
                     )
                     
                     # Log the prompt evaluation
@@ -171,7 +172,7 @@ class PACE:
                         try:
                             await websocket.send_json({
                                 "type": "prompt_update",
-                                "prompt": self._clean_prompt(best_prompt),
+                                "prompt": best_prompt,
                                 "score": best_score,
                                 "iteration": t + 1,
                             })
@@ -354,32 +355,38 @@ class PACE:
 
         domain = feature_values.get('domain')
         label = feature_values.get('label')
-        label_description = feature_values.get('label_description')
+        label_definition = feature_values.get('label_definition')
+        language = feature_values.get('language')
         stakeholder = feature_values.get('stakeholder')
         specification_format = feature_values.get('specification_format')
         specification_level = feature_values.get('specification_level')
         
-        critique_prompt = f"""You are a prompt engineering expert.
+        critique_prompt = f"""I gave you this instruction: 
 
-Review the following prompt:
----
-{prompt}
----
+"{prompt}"
 
-and the corresponding model output:
----
+Based on this instruction, the following output was generated:
 {action}
----
 
-Provide critical feedback to refine the prompt so that it:
-1. Precisely adheres to the required attributes:
-    - Domain: {domain}
-    - Classification Label: {label} (Description: {label_description})
-    - Stakeholder Perspective: {stakeholder}
-    - Specification Format: {specification_format}
-    - Specification Level: {specification_level}
-2. Generates high-quality diverse synthetic data suitable for robust AI model training.
-3. Maintains the expected output format as specified in the prompt."""
+The output is expected to be a JSON array of strings, like this example:
+[
+  "1st requirement text",
+  "2nd requirement text"
+]
+
+The generated requirements of the output are expected to be:
+- Be {label} (Definition: {label_definition}).
+- Be written in {language}.
+- Pertain to a {domain} system.
+- Be written from the perspective of {stakeholder}.
+- Follow the {specification_format} format.
+- Be specified at a {specification_level} level.
+- Be diverse enough for robust AI model training.
+
+Considering the generated requirements and the expected characteristics of the output, provide critical advice on how to improve the instruction.
+IMPORTANT: Your task is to identify ONLY problems with how the output follows the instruction.
+DO NOT suggest adding new requirements or formats not already in the instruction.
+DO NOT suggest stylistic changes unless they directly relate to the expected characteristics."""
         
         critic_settings = {
             'llm': feature_values.get('llm'),
@@ -424,19 +431,21 @@ Provide critical feedback to refine the prompt so that it:
         
         combined_feedback = "\n\n".join([f"Feedback {i+1}:\n{fb}" for i, fb in enumerate(feedback_list)])
         
-        update_prompt = f"""You are a prompt engineering expert. Improve the following prompt using the provided feedback.
+        update_prompt = f"""You are tasked with improving an instruction for generating requirements.
 
-Prompt:
----
-{current_prompt}
----
+Current instruction: "{current_prompt}"
 
-Feedback:
----
+Critical feedback received:
 {combined_feedback}
----
 
-Return only the improved prompt with the same format as the original prompt without any additional text or formatting."""
+Your task:
+1. Create an improved version of the instruction that addresses the feedback
+2. Return ONLY the improved instruction text
+3. Do not include any explanations, quotes, prefixes, or formatting
+4. Do not use JSON format or code blocks
+5. The instruction should be ready to use as-is
+
+Improved instruction:"""
 
         update_settings = {
             'llm': feature_values.get('llm'),
@@ -450,19 +459,18 @@ Return only the improved prompt with the same format as the original prompt with
                 features=update_settings
             )
             
-            raw_completion = completions[0] if completions else current_prompt
-            clean_prompt = self._clean_prompt(raw_completion)
+            updated_prompt = completions[0] if completions else current_prompt
             
             if self._logger:
                 self._logger.log_prompt(
                     prompt=current_prompt,
-                    updated_prompt=clean_prompt,
+                    updated_prompt=updated_prompt,
                     feedback=combined_feedback,
                     score=None,
                     iteration=feature_values.get('current_iteration', 0)
                 )
             
-            return clean_prompt
+            return updated_prompt
             
         except Exception as e:
             if self._logger:
@@ -476,10 +484,10 @@ Return only the improved prompt with the same format as the original prompt with
     def _evaluate_prompt(
         self, 
         raw_completions: List[str], 
-        samples_per_prompt: int
+        samples_per_prompt: int,
     ) -> float:
         """
-        Evaluate the prompt through the diversity of the generated samples.
+        Evaluate the prompt through the diversity of generated samples.
         
         Args:
             raw_completions: List of raw outputs from actor
@@ -499,84 +507,12 @@ Return only the improved prompt with the same format as the original prompt with
                 parsed = self._parse_json_samples(raw_completion, samples_per_prompt)
                 if parsed:
                     parsed_samples.extend(parsed)
-            
-            if len(parsed_samples) < 2:
-                if self._logger:
-                    self._logger.log_error(
-                        "Insufficient parsed samples for diversity evaluation", 
-                        "pace"
-                    )
-                return 0.0
-            
-            # 1. Calculate pairwise similarities using the parsed samples
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            
-            # Load models only when needed (could be optimized to load once in the class)
-            tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/bert-base-nli-mean-tokens')
-            model = AutoModel.from_pretrained('sentence-transformers/bert-base-nli-mean-tokens').to(device)
-            
-            # Get embeddings for parsed samples
-            embeddings = []
-            batch_size = 8
-            
-            for i in range(0, len(parsed_samples), batch_size):
-                batch = tokenizer(
-                    parsed_samples[i:i+batch_size],
-                    padding=True,
-                    truncation=True,
-                    max_length=512,
-                    return_tensors="pt"
-                ).to(device)
-                
-                with torch.no_grad():
-                    outputs = model(**batch).last_hidden_state.mean(dim=1).cpu().numpy()
-                embeddings.append(outputs)
-            
-            embeddings = np.vstack(embeddings)
-            similarity_matrix = cosine_similarity(embeddings)
-            
-            # Calculate average pairwise similarity (excluding self-similarity)
-            similarity_mask = ~np.eye(len(similarity_matrix), dtype=bool)
-            avg_pairwise_similarity = similarity_matrix[similarity_mask].mean()
-            
-            # 2. Calculate inter-ngram frequency
-            def _generate_ngrams(text, n=3):
-                """Generate n-grams from text."""
-                cleaned = text.replace('.', '').replace('\n', ' ').strip()
-                words = [w for w in cleaned.split() if w]
-                return [tuple(words[i:i+n]) for i in range(len(words)-n+1)]
-            
-            # Calculate ngram diversity using parsed samples
-            all_ngrams = []
-            for text in parsed_samples:
-                all_ngrams.extend(_generate_ngrams(text))
-            
-            if not all_ngrams:
-                inter_ngram_freq = 1.0  # Worst case
-            else:
-                unique_ngrams = set(all_ngrams)
-                inter_ngram_freq = sum(all_ngrams.count(ngram) for ngram in unique_ngrams) / len(unique_ngrams)
-            
-            # Normalize metrics into [0,1] range for the final score
-            # Lower similarity and lower ngram frequency are better
-            
-            # Normalize similarity (typically in range -1 to 1)
-            # Transform so that 1 (identical) becomes 0 (bad) and -1 (opposite) becomes 1 (good)
-            normalized_similarity_score = 1 - ((avg_pairwise_similarity + 1) / 2)
-            
-            # Normalize inter-ngram frequency (assuming typical range of 1-5)
-            # Clip to prevent extreme values
-            clipped_inter_ngram_freq = min(5, max(1, inter_ngram_freq))
-            normalized_ngram_score = 1 - ((clipped_inter_ngram_freq - 1) / 4)
-            
-            # Combine scores with weights
-            similarity_weight = 0.6
-            ngram_weight = 0.4
-            
-            final_score = (similarity_weight * normalized_similarity_score + 
-                          ngram_weight * normalized_ngram_score)
-            
-            return float(final_score)
+                    
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+            embeddings = model.encode(parsed_samples)
+            distances = cosine_distances(embeddings)
+            avg_distance = np.mean(distances[np.triu_indices(len(parsed_samples), k=1)])
+            return float(avg_distance)
             
         except Exception as e:
             if self._logger:
@@ -585,39 +521,3 @@ Return only the improved prompt with the same format as the original prompt with
                     "pace"
                 )
             return float(0.0)
-
-    def _clean_prompt(self, prompt: str) -> str:
-        """
-        Clean a prompt to remove outermost wrappers while preserving content.
-        
-        Args:
-            prompt: The prompt to clean
-            
-        Returns:
-            The cleaned prompt text
-        """
-        import json
-        import re
-        
-        # If it's already a clean string, return it
-        prompt = prompt.strip()
-        
-        # Case 1: Handle the specific JSON format with "prompt" key
-        if prompt.startswith('{') and prompt.endswith('}'):
-            try:
-                data = json.loads(prompt)
-                if isinstance(data, dict) and 'prompt' in data:
-                    return data['prompt']
-            except:
-                # If parsing fails, don't modify the prompt
-                pass
-        
-        # Case 2: If it starts with "```" and ends with "```", extract content only if
-        # these markers wrap the entire content
-        if prompt.startswith('```') and prompt.endswith('```'):
-            pattern = r'^```(?:\w+)?\s*([\s\S]*?)```\s*$'
-            match = re.match(pattern, prompt)
-            if match:
-                return match.group(1).strip()
-        
-        return prompt
