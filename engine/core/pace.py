@@ -159,32 +159,29 @@ class PACE:
         specification_format = features['specification_format']
         specification_level = features['specification_level']
         
-        critique_prompt = f"""I gave you this instruction:
-
+        critique_prompt = f"""Instruction given:
 "{prompt}"
 
-Based on this instruction, the following output was generated:
+It produced the following output:
 {action}
 
-The output is expected to be a JSON array of strings, like this example:
+Expected output format: a JSON array of strings, e.g.:
 [
   "1st requirement text",
   "2nd requirement text"
 ]
 
-The generated requirements of the output are expected to be:
+Each requirement must:
 - Be {label} (Definition: {label_definition}).
 - Be written in {language}.
 - Pertain to a {domain} system.
 - Be written from the perspective of {stakeholder}.
 - Follow the {specification_format} format.
 - Be specified at a {specification_level} level.
-- Be diverse enough for robust AI model training.
 
-Considering the generated requirements and the expected characteristics of the output, provide critical advice on how to improve the instruction.
-IMPORTANT: Your task is to identify ONLY problems with how the output follows the instruction.
-DO NOT suggest adding new requirements or formats not already in the instruction.
-DO NOT suggest stylistic changes unless they directly relate to the expected characteristics."""
+The full set should also be diverse enough for robust AI training.
+
+Your task: Critique how the output fails to meet these expectations. Focus only on these points—don't suggest changes beyond them."""        
         
         critic_settings = {
             'llm': features['llm'],
@@ -213,21 +210,15 @@ DO NOT suggest stylistic changes unless they directly relate to the expected cha
         
         combined_feedback = "\n\n".join([f"Feedback {i+1}:\n{fb}" for i, fb in enumerate(feedback_list)])
         
-        update_prompt = f"""You are tasked with improving an instruction for generating requirements.
+        update_prompt = f"""Instruction given:
+"{current_prompt}"
 
-Current instruction: "{current_prompt}"
-
-Critical feedback received:
+Feedback:
 {combined_feedback}
 
-Your task:
-1. Create an improved version of the instruction that addresses the feedback
-2. Return ONLY the improved instruction text
-3. Do not include any explanations, quotes, prefixes, or formatting
-4. Do not use JSON format or code blocks
-5. The instruction should be ready to use as-is
+Rewrite the instruction to address the feedback.
 
-Improved instruction:"""
+Return only the new instruction as plain text — no extra text, quotes, or formatting."""
 
         update_settings = {
             'llm': features['llm'],

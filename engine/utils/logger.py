@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 class Logger:
     """Logger for Synthline."""
-    def __init__(self, base_dir: str = "logs", debug_mode: bool = True):
+    def __init__(self, base_dir: str = "logs", debug_mode: bool = False):
         """Initialize the logger."""
         
         self.log_dir = Path(base_dir)
@@ -16,34 +16,6 @@ class Logger:
         self.error_dir = self.log_dir / "errors"
         self.pace_dir = self.log_dir / "pace"
         self.debug_mode = debug_mode
-
-    def log_conversation(self, 
-                        prompt: str, 
-                        completion: str, 
-                        model: str, 
-                        temperature: float, 
-                        top_p: float) -> Optional[Path]:
-        """Log an LLM conversation (prompt and completion)."""
-        
-        if not self.debug_mode:
-            return None
-            
-        self.log_dir.mkdir(exist_ok=True, parents=True)
-        self.conversation_dir.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        log_file = self.conversation_dir / f"conversation_{timestamp}.json"
-        
-        log_data = {
-            "timestamp": timestamp,
-            "model": model,
-            "temperature": temperature,
-            "top_p": top_p,
-            "prompt": prompt,
-            "completion": completion
-        }
-        
-        self._write_json(log_file, log_data)
-        return log_file
     
     def log_error(self, 
                  error_msg: str, 
@@ -74,9 +46,6 @@ class Logger:
                   event: Optional[str] = None) -> Optional[Path]:
         """Log prompt optimization events."""
         
-        if not self.debug_mode:
-            return None
-
         self.log_dir.mkdir(exist_ok=True, parents=True)
         self.pace_dir.mkdir(exist_ok=True)
         
@@ -99,6 +68,34 @@ class Logger:
         self._write_json(log_file, log_data)
         return log_file
     
+    def log_conversation(self, 
+                        prompt: str, 
+                        completion: str, 
+                        model: str, 
+                        temperature: float, 
+                        top_p: float) -> Optional[Path]:
+        """Log an LLM conversation (prompt and completion)."""
+        
+        if not self.debug_mode:
+            return None
+            
+        self.log_dir.mkdir(exist_ok=True, parents=True)
+        self.conversation_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        log_file = self.conversation_dir / f"conversation_{timestamp}.json"
+        
+        log_data = {
+            "timestamp": timestamp,
+            "model": model,
+            "temperature": temperature,
+            "top_p": top_p,
+            "prompt": prompt,
+            "completion": completion
+        }
+        
+        self._write_json(log_file, log_data)
+        return log_file
+
     def _write_json(self, file_path: Path, data: Dict[str, Any]) -> None:
         """Write JSON data to a file with error handling."""
         try:

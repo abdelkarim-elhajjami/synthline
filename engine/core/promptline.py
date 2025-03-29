@@ -31,7 +31,7 @@ IMPORTANT: Generate only the requirement text without additional formatting. No 
 5. Follow the {specification_format} format.
 6. Are specified at a {specification_level} level.
 
-IMPORTANT: Format your completion exactly as a JSON array of strings, like this example:
+IMPORTANT: Format your completion exactly as a JSON array of strings, e.g.:
 [
   "1st requirement text",
   "2nd requirement text"
