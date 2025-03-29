@@ -3,22 +3,18 @@ FastAPI routes for the Synthline API.
 Provides endpoints for feature retrieval, prompt preview, and data generation.
 """
 import os
-from typing import Dict, List, Any, Optional
 import asyncio
-
-import uvicorn
+from typing import Dict, List, Any, Optional
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-
-from fm import FM
-from generator import Generator
-from llm_client import LLMClient
-from output import Output
-from promptline import Promptline
-from logger import Logger
-from pace import PACE
+from core.fm import FM
+from core.generator import Generator
+from core.llm import LLMClient
+from core.output import Output
+from core.promptline import Promptline
+from utils.logger import Logger
 
 API_TITLE = "Synthline API"
 ALLOWED_ORIGINS = ["http://localhost:3000", "http://web:3000"]
@@ -27,7 +23,7 @@ OUTPUT_DIR = "output"
 
 # Define models
 class GenerationRequest(BaseModel):
-    feature_values: Dict[str, Any]
+    features: Dict[str, Any]
     connection_id: str
 
 class GenerationResponse(BaseModel):
@@ -36,18 +32,14 @@ class GenerationResponse(BaseModel):
     fewer_samples_received: bool = False
 
 class PromptPreviewRequest(BaseModel):
-    feature_values: Dict[str, Any]
+    features: Dict[str, Any]
 
 class PromptPreviewResponse(BaseModel):
     prompt: str
 
 class OptimizePromptRequest(BaseModel):
-    feature_values: Dict[str, Any]
+    features: Dict[str, Any]
     connection_id: str
-
-class OptimizePromptResponse(BaseModel):
-    optimized_prompt: str
-    score: float
 
 # Create FastAPI application
 app = FastAPI(title=API_TITLE)
@@ -86,26 +78,32 @@ async def startup_event() -> None:
     try:
         logger = Logger(base_dir=LOGS_DIR)
         features = FM().features
-        llm_client = LLMClient(deepseek_key, openai_key, logger=logger)
-        promptline = Promptline(logger=logger)
-        output = Output(output_dir=OUTPUT_DIR, logger=logger)
-        generator = Generator(llm_client, promptline, batch_size=1, logger=logger)
+        llm_client = LLMClient(logger=logger, deepseek_key=deepseek_key, openai_key=openai_key)
+        promptline = Promptline(llm_client=llm_client, logger=logger)
+        output = Output(logger=logger, output_dir=OUTPUT_DIR)
+        generator = Generator(llm=llm_client, promptline=promptline, logger=logger)
         print("Synthline API initialized successfully")
     except Exception as e:
-        print(f"Error during startup: {e}")
-        if logger:
-            logger.log_error(str(e), "startup")
+        error_msg = f"Error during startup: {e}"
+        print(error_msg)
+        logger.log_error(error_msg, "startup")
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @app.websocket("/ws/{connection_id}")
 async def websocket_endpoint(websocket: WebSocket, connection_id: str) -> None:
     """Handle WebSocket connections for real-time progress updates."""
-    await websocket.accept()
-    connections[connection_id] = websocket
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        connections.pop(connection_id, None)
+        await websocket.accept()
+        connections[connection_id] = websocket
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            connections.pop(connection_id, None)
+    except Exception as e:
+        error_message = f"WebSocket error: {str(e)}"
+        logger.log_error(error_message, "websocket", {"connection_id": connection_id})
+        raise HTTPException(status_code=500, detail=error_message)
 
 @app.get("/features")
 async def get_features() -> Dict[str, Any]:
@@ -120,9 +118,7 @@ async def preview_prompt(request: PromptPreviewRequest) -> PromptPreviewResponse
     if not promptline:
         raise HTTPException(status_code=503, detail="Promptline service not initialized")
     
-    # Get sample count and build prompt
-    count = int(request.feature_values.get('samples_per_prompt'))
-    prompt = promptline.build(request.feature_values, count)
+    prompt = promptline.build(request.features)
     
     return PromptPreviewResponse(prompt=prompt)
 
@@ -138,21 +134,17 @@ async def generate_samples(request: GenerationRequest) -> GenerationResponse:
         if websocket:
             await websocket.send_json({"type": "progress", "progress": progress})
     
-    # Check if we have an optimized prompt and add it to the request
-    optimized_prompt = request.feature_values.get('optimized_prompt')
-    
     # Generate samples
-    samples = await generator.generate_samples(
-        feature_values=request.feature_values,
-        progress_callback=progress_callback,
-        optimized_prompt=optimized_prompt
+    samples = await generator.generate(
+        features=request.features,
+        progress_callback=progress_callback
     )
     
     # Save and return results
     output_path = output.save(
         samples=samples, 
-        format=request.feature_values['output_format'], 
-        features=request.feature_values
+        format=request.features['output_format'], 
+        features=request.features
     )
     
     # Send completion
@@ -167,70 +159,71 @@ async def generate_samples(request: GenerationRequest) -> GenerationResponse:
 
 @app.post("/optimize-prompt")
 async def start_optimize(request: OptimizePromptRequest) -> Dict[str, Any]:
-    """Start optimizing a prompt using PACE algorithm."""
-    if not promptline or not llm_client:
-        raise HTTPException(status_code=503, detail="Services not initialized")
+    """Start optimizing a prompt using PACE."""
+    if not promptline:
+        raise HTTPException(status_code=503, detail="Promptline service not initialized")
     
     websocket = connections.get(request.connection_id)
     if not websocket:
         raise HTTPException(status_code=400, detail="WebSocket connection not found")
     
-    # Generate initial prompt
-    samples_per_prompt = int(request.feature_values.get('samples_per_prompt'))
-    initial_prompt = promptline.build(request.feature_values, samples_per_prompt)
+    # Add connections to feature values for WebSocket updates
+    request.features['connections'] = connections
     
-    # Start optimization in background task
-    asyncio.create_task(
-        run_optimization(
-            request.feature_values,
-            initial_prompt,
-            request.connection_id
+    try:
+        # Start optimization in background task
+        asyncio.create_task(
+            run_optimization(
+                request.features,
+                request.connection_id
+            )
         )
-    )
-    
-    return {"status": "optimization_started", "connection_id": request.connection_id}
+        
+        return {"status": "optimization_started", "connection_id": request.connection_id}
+    except Exception as e:
+        error_message = f"Failed to start optimization: {str(e)}"
+        logger.log_error(error_message, "optimize_start", {"connection_id": request.connection_id})
+        raise HTTPException(status_code=500, detail=error_message)
 
 async def run_optimization(
-    feature_values: Dict[str, Any],
-    initial_prompt: str,
+    features: Dict[str, Any],
     connection_id: str
 ) -> None:
     """Run optimization in the background and send results via WebSocket."""
     websocket = connections.get(connection_id)
     if not websocket:
+        error_message = f"WebSocket connection lost: {connection_id}"
+        logger.log_error(error_message, "pace_background")
         return
     
     try:
         # Progress callback function
         async def progress_callback(progress: float) -> None:
             if websocket:
-                await websocket.send_json({"type": "progress", "progress": progress})
+                try:
+                    await websocket.send_json({"type": "progress", "progress": progress})
+                except Exception as ws_e:
+                    logger.log_error(f"Failed to send progress: {str(ws_e)}", "websocket")
         
-        # Create PACE optimizer
-        pace_optimizer = PACE(
-            llm_client=llm_client,
-            iterations=int(feature_values.get('pace_iterations')),
-            num_actors=int(feature_values.get('pace_actors')),
-            initial_prompt=initial_prompt,
-            logger=logger,
-            connections=connections
-        )
+        # Add connection_id to features
+        features['connection_id'] = connection_id
         
-        feature_values['connection_id'] = connection_id
-        
-        # Run optimization
-        optimized_prompt, score = await pace_optimizer.optimize(
-            feature_values=feature_values,
+        # Use promptline to handle the optimization
+        optimized_prompt, score = await promptline.optimize(
+            features=features,
             progress_callback=progress_callback
         )
         
         # Send final result
         if websocket:
-            await websocket.send_json({
-                "type": "optimize_complete",
-                "optimized_prompt": optimized_prompt,
-                "score": float(score)
-            })
+            try:
+                await websocket.send_json({
+                    "type": "optimize_complete",
+                    "optimized_prompt": optimized_prompt,
+                    "score": float(score)
+                })
+            except Exception as ws_e:
+                logger.log_error(f"Failed to send completion: {str(ws_e)}", "websocket")
     
     except Exception as e:
         error_message = str(e)
@@ -239,10 +232,13 @@ async def run_optimization(
         
         # Send error to client
         if websocket:
-            await websocket.send_json({
-                "type": "error",
-                "message": f"Optimization error: {error_message}"
-            })
+            try:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Optimization error: {error_message}"
+                })
+            except Exception as ws_e:
+                logger.log_error(f"Failed to send error: {str(ws_e)}", "websocket")
 
 @app.get("/health")
 async def health_check() -> Dict[str, str]:
@@ -252,16 +248,24 @@ async def health_check() -> Dict[str, str]:
 @app.get("/files/{file_path:path}")
 async def serve_file(file_path: str) -> FileResponse:
     """Serve any file from the output directory."""
-    full_path = os.path.join(OUTPUT_DIR, file_path)
-    
-    if not os.path.exists(full_path) or not os.path.isfile(full_path):
-        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-    
-    return FileResponse(
-        path=full_path,
-        filename=os.path.basename(file_path),
-        media_type='application/octet-stream'
-    )
-
-if __name__ == "__main__":
-    uvicorn.run("routes:app", host="0.0.0.0", port=8000, reload=True)
+    try:
+        normalized_path = os.path.normpath(file_path)
+        if normalized_path.startswith("..") or normalized_path.startswith("/"):
+            raise HTTPException(status_code=403, detail="Invalid file path")
+            
+        full_path = os.path.join(OUTPUT_DIR, normalized_path)
+        
+        if not os.path.exists(full_path) or not os.path.isfile(full_path):
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+        
+        return FileResponse(
+            path=full_path,
+            filename=os.path.basename(file_path),
+            media_type='application/octet-stream'
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_message = f"Error serving file: {str(e)}"
+        logger.log_error(error_message, "file_serve", {"file_path": file_path})
+        raise HTTPException(status_code=500, detail=error_message)

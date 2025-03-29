@@ -4,7 +4,6 @@ Defines and manages configurable features for data generation.
 """
 from typing import Dict, List, Optional
 
-
 class Feature:
     """
     Represents a configurable feature with its properties and sub-features.
@@ -72,4 +71,4 @@ class FM:
                 'output_format': Feature('Output Format', 'select', ['JSON', 'CSV']),
                 'total_samples': Feature('Total Samples', 'input'),
             })
-        }
+        } 

@@ -47,12 +47,11 @@ RUN useradd -m -s /bin/bash appuser \
     && mkdir -p /engine/logs /engine/output \
     && chown -R appuser:appuser /engine
 
-# Copy only the necessary files
-COPY *.py .
-COPY .env* ./
+# Copy application code
+COPY . .
 
-# Set permissions for output and log directories
-RUN chown -R appuser:appuser /engine/logs /engine/output \
+# Ensure proper permissions for all directories
+RUN chown -R appuser:appuser /engine \
     && chmod 755 /engine/logs /engine/output
 
 # Declare volumes for persistent data
@@ -69,4 +68,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://0.0.0.0:8000/health || exit 1
 
 # Command to run the application
-CMD ["uvicorn", "routes:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]

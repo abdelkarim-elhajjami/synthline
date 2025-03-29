@@ -179,7 +179,7 @@ export default function SynthlineApp() {
       const response = await fetch('/api/preview-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feature_values: formData })
+        body: JSON.stringify({ features: formData })
       });
       
       if (!response.ok) {
@@ -225,7 +225,7 @@ export default function SynthlineApp() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          feature_values: formData,
+          features: formData,
           connection_id: connectionId
         })
       });
@@ -260,7 +260,7 @@ export default function SynthlineApp() {
     try {
       // Include optimizedPrompt if available
       const requestData = {
-        feature_values: {
+        features: {
           ...formData,
           // Include the optimized prompt if available and PACE was used
           optimized_prompt: formData.prompt_approach === "PACE" && optimizedPrompt ? optimizedPrompt : undefined
