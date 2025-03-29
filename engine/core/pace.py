@@ -30,6 +30,7 @@ class PACE:
         initial_prompt: Optional[str] = None,
         n_iterations: Optional[int] = None,
         n_actors: Optional[int] = None,
+        n_candidates: Optional[int] = None,
         connections: Optional[Dict[str, Any]] = None
     ) -> Tuple[str, float]:
         """Run the PACE optimization."""        
@@ -40,38 +41,55 @@ class PACE:
         
         try:
             # Repeat until convergence or max iterations
-            for t in range(n_iterations):                
+            for t in range(n_iterations):
+                # 1. Collect feedback using n actors and critics (only once per iteration)
                 all_critiques = []
                 all_actions = []
                 
-                # 1. Use n actors to generate outputs
                 for _ in range(n_actors):
                     try:
                         action = await self._run_actor(prompt=current_prompt, features=features)
                         all_actions.append(action)
                         
-                        # 2. Use n critics to provide critique
                         critique = await self._run_critic(prompt=current_prompt, action=action, features=features)
                         all_critiques.append(critique)
                         
                     except Exception as e:
                         self._logger.log_error(f"Actor-critic error: {str(e)}", "pace", {"prompt": current_prompt})
                 
-                try:
-                    # 3. Update the prompt based on critiques
-                    next_prompt = await self._update_prompt(current_prompt, all_critiques, features)
+                # 2. Generate multiple candidate prompts from the SAME set of critiques
+                all_candidate_prompts = []
+                all_candidate_scores = []
+                
+                for _ in range(n_candidates):
+                    try:
+                        # 3. Update the prompt based on critiques (generate one candidate)
+                        candidate_prompt = await self._update_prompt(current_prompt, all_critiques, features)
+                        
+                        # 4. Evaluate each candidate prompt
+                        new_actions = []
+                        for _ in range(n_actors):
+                            action = await self._run_actor(prompt=candidate_prompt, features=features)
+                            new_actions.append(action)
+                        
+                        candidate_score = self._evaluate_prompt(new_actions, features['samples_per_prompt'])
+                        
+                        all_candidate_prompts.append(candidate_prompt)
+                        all_candidate_scores.append(candidate_score)
+                        
+                    except Exception as e:
+                        self._logger.log_error(f"Candidate generation error: {str(e)}", "pace", {"prompt": current_prompt})
+                
+                # 5. Select the best candidate from this iteration
+                if all_candidate_prompts:
+                    best_idx = all_candidate_scores.index(max(all_candidate_scores))
+                    candidate_prompt = all_candidate_prompts[best_idx]
+                    candidate_score = all_candidate_scores[best_idx]
                     
-                    # 3. Evaluate the new prompt
-                    new_actions = []
-                    for _ in range(n_actors):
-                        action = await self._run_actor(prompt=next_prompt, features=features)
-                        new_actions.append(action)
-                    
-                    next_score = self._evaluate_prompt(new_actions, features['samples_per_prompt'])
-                    
-                    if next_score > best_score:
-                        best_prompt = next_prompt
-                        best_score = next_score
+                    # Update the best prompt if this candidate is better
+                    if candidate_score > best_score:
+                        best_prompt = candidate_prompt
+                        best_score = candidate_score
                         
                         # Log when we find a better prompt
                         self._logger.log_prompt(
@@ -81,7 +99,7 @@ class PACE:
                         )
                     
                     # Update current prompt for next iteration
-                    current_prompt = next_prompt
+                    current_prompt = candidate_prompt
                     
                     # Send update via WebSocket if connection exists
                     websocket = connections.get(features['connection_id'])
@@ -99,13 +117,10 @@ class PACE:
                                 "pace", 
                                 {"iteration": t + 1}
                             )
-                    
-                    # Report progress
-                    if progress_callback:
-                        await track_progress(progress_callback, ((t+1) / n_iterations) * 100)
-                    
-                except Exception as e:
-                    self._logger.log_error(f"Prompt update error: {str(e)}", "pace", {"prompt": current_prompt})
+                
+                # Report progress
+                if progress_callback:
+                    await track_progress(progress_callback, ((t+1) / n_iterations) * 100)
         except Exception as e:
             self._logger.log_error(f"PACE optimization error: {str(e)}", "pace", {"features": str(features)})
         

@@ -64,6 +64,7 @@ class FM:
                 'prompt_approach': Feature('Prompt Approach', 'select', ['Default', 'PACE']),
                 'pace_iterations': Feature('PACE Iterations', 'input'),
                 'pace_actors': Feature('PACE Actors', 'input'),
+                'pace_candidates': Feature('PACE Candidates', 'input'),
             }),
             
             # Output

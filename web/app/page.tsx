@@ -30,6 +30,7 @@ interface FormData {
   prompt_approach: string;
   pace_iterations: number;
   pace_actors: number;
+  pace_candidates: number;
 }
 
 interface Sample {
@@ -75,8 +76,9 @@ export default function SynthlineApp() {
     specification_level: "",
     stakeholder: "",
     prompt_approach: "Default",
-    pace_iterations: 4,
-    pace_actors: 2
+    pace_iterations: 3,
+    pace_actors: 4,
+    pace_candidates: 2
   };
 
   // State
@@ -556,7 +558,7 @@ export default function SynthlineApp() {
                         className="py-4"
                         disabled={isGenerating || isOptimizingPrompt}
                       />
-                      <p className="text-xs text-zinc-500">More iterations may yield better prompts but take longer</p>
+                      <p className="text-xs text-zinc-500">Number of prompt refinement cycles to run (higher values may improve quality but increase cost)</p>
                     </div>
 
                     <div className="space-y-2">
@@ -573,7 +575,24 @@ export default function SynthlineApp() {
                         className="py-4"
                         disabled={isGenerating || isOptimizingPrompt}
                       />
-                      <p className="text-xs text-zinc-500">More pairs provide diverse feedback but increase costs</p>
+                      <p className="text-xs text-zinc-500">Number of parallel LLM evaluations to collect feedback for each prompt</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Label className="text-white">Candidates Per Iteration</Label>
+                        <span className="text-zinc-400 text-sm">{formData.pace_candidates}</span>
+                      </div>
+                      <Slider 
+                        value={[formData.pace_candidates]} 
+                        onValueChange={(values) => handleInputChange('pace_candidates', values[0])} 
+                        min={1}
+                        max={10} 
+                        step={1} 
+                        className="py-4"
+                        disabled={isGenerating || isOptimizingPrompt}
+                      />
+                      <p className="text-xs text-zinc-500">Number of alternative prompt candidates to generate and evaluate each iteration</p>
                     </div>
 
                     <Button 

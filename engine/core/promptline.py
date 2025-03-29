@@ -80,6 +80,7 @@ Include only the JSON array. No additional text.'''
         # Configure optimizer with features
         n_iterations = int(features['pace_iterations'])
         n_actors = int(features['pace_actors'])
+        n_candidates = int(features['pace_candidates'])
         connections = features['connections']
         
         # Run optimization
@@ -89,6 +90,7 @@ Include only the JSON array. No additional text.'''
             initial_prompt=initial_prompt,
             n_iterations=n_iterations,
             n_actors=n_actors,
+            n_candidates=n_candidates,
             connections=connections
         )
         
