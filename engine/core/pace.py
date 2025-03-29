@@ -120,7 +120,7 @@ class PACE:
             event="FINAL OPTIMIZED PROMPT"
         )
         
-        return best_prompt, float(best_score)
+        return best_prompt, best_score
     
     async def _run_actor(
         self, 
@@ -255,11 +255,11 @@ Return only the new instruction as plain text — no extra text, quotes, or form
             embeddings = self._model.encode(parsed_samples)
             distances = cosine_distances(embeddings)
             avg_distance = np.mean(distances[np.triu_indices(len(parsed_samples), k=1)])
-            return float(avg_distance)
+            return float(avg_distance) # Convert numpy.float32 to native Python float for JSON serialization
             
         except Exception as e:
             self._logger.log_error(
                 f"Evaluation error: {str(e)}", 
                 "pace"
             )
-            return float(-1.0) 
+            return -1.0
