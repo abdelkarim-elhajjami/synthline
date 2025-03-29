@@ -1,8 +1,6 @@
 # Synthline
 
-<div align="center">
-  <h3>Generate High-Quality Synthetic Data for Requirements Engineering</h3>
-</div>
+Synthline is a tool for generating high-quality synthetic data for requirements engineering. It leverages large language models (LLMs) to create diverse, customizable requirement samples according to specified attributes.
 
 ## Overview
 
@@ -14,6 +12,22 @@ Synthline generates high-quality synthetic data for training and evaluating AI m
 - **Highly Configurable**: Control all aspects of generated requirements
 - **Multiple Output Formats**: Export as JSON or CSV
 - **Web Interface**: Intuitive UI for configuration
+
+## New Feature: PACE Prompt Optimization
+
+Synthline now includes PACE (Prompt Actor-Critic Editing) for prompt optimization (https://aclanthology.org/2024.findings-acl.436/). This technique improves the quality and relevance of generated requirements by:
+
+- Using multiple "actors" to generate candidate outputs
+- Employing "critics" to evaluate these outputs and provide feedback
+- Iteratively refining prompts based on collected feedback
+- Measuring diversity to select the best performing prompt
+
+The PACE approach helps create more diverse, accurate, and domain-specific requirements with minimal manual intervention.
+
+To use PACE:
+1. Select "PACE Optimization" in the prompt approach settings
+2. Configure the number of iterations and actor-critic pairs
+3. Click "Optimize Prompt" before generating data
 
 ## Getting Started
 
