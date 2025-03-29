@@ -20,7 +20,7 @@ class Promptline:
 5. Follows the {specification_format} format.
 6. Is specified at a {specification_level} level.
 
-IMPORTANT: Generate only the requirement text without additional formatting. No additional text or explanation.'''
+Output only the requirement text. No additional text or formatting.'''
     
     # Template for generating multiple requirements
     MULTI_TEMPLATE = '''Generate {samples_per_prompt} diverse requirements that:
@@ -31,14 +31,13 @@ IMPORTANT: Generate only the requirement text without additional formatting. No 
 5. Follow the {specification_format} format.
 6. Are specified at a {specification_level} level.
 
-IMPORTANT: Format your completion exactly as a JSON array of strings, e.g.:
+Format your completion exactly as a JSON array of strings, e.g.:
 [
   "1st requirement text",
   "2nd requirement text"
 ]
 
-Do not use nested quotes within the JSON. Each requirement should be a simple string without additional formatting.
-Include only the JSON array with requirements. No additional text or explanation.'''
+Include only the JSON array. No additional text.'''
 
     def __init__(self, llm_client: LLMClient, logger: Logger):
         """Initialize the promptline manager."""

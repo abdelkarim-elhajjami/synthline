@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     
     if (!response.ok) {
       const errorText = await response.text();
-      let errorDetail = 'Failed to generate prompt preview';
+      let errorDetail = 'Prompt preview failed';
       
       try {
         const errorData = JSON.parse(errorText);
@@ -20,9 +20,7 @@ export async function POST(request: Request) {
       } catch {
         errorDetail = errorText || errorDetail;
       }
-      
-      console.error('Preview error:', errorDetail);
-      
+            
       return NextResponse.json(
         { error: errorDetail },
         { status: response.status }
@@ -32,7 +30,6 @@ export async function POST(request: Request) {
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error('Preview exception:', error);
     return handleApiError(error, 'Failed to generate prompt preview');
   }
 }

@@ -75,7 +75,7 @@ export default function SynthlineApp() {
     specification_level: "",
     stakeholder: "",
     prompt_approach: "Default",
-    pace_iterations: 3,
+    pace_iterations: 4,
     pace_actors: 2
   };
 
@@ -90,7 +90,7 @@ export default function SynthlineApp() {
   const [results, setResults] = useState<Results | null>(null);
   const [connectionId] = useState(() => uuidv4());
   const [optimizationSuccess, setOptimizationSuccess] = useState<string | null>(null);
-  const [optimizedPrompt, setOptimizedPrompt] = useState<string | null>(null);
+  const [isPromptOptimized, setIsPromptOptimized] = useState(false);
   
   // WebSocket handling
   useEffect(() => {
@@ -115,25 +115,11 @@ export default function SynthlineApp() {
             setIsOptimizingPrompt(false);
             setProgress(100);
             
-            // Parse and store the optimized prompt
-            let optimizedPrompt = data.optimized_prompt;
-            
-            // Try to parse as JSON if it appears to be JSON
-            if (typeof optimizedPrompt === 'string' && 
-                optimizedPrompt.trim().startsWith('{') && 
-                optimizedPrompt.trim().endsWith('}')) {
-              try {
-                const parsedData = JSON.parse(optimizedPrompt);
-                if (parsedData.prompt) {
-                  optimizedPrompt = parsedData.prompt;
-                }
-              } catch (e) {
-                console.error("Failed to parse optimized_prompt as JSON:", e);
-              }
-            }
+            const optimizedPrompt = data.optimized_prompt;
             
             setCurrentPrompt(optimizedPrompt);
-            setOptimizedPrompt(optimizedPrompt); // Store it in state
+            setIsPromptOptimized(true);
+            
             setOptimizationSuccess(`Prompt optimization complete!`);
             setTimeout(() => setOptimizationSuccess(null), 10000);
             break;
@@ -258,12 +244,13 @@ export default function SynthlineApp() {
     setProgress(0);
     
     try {
-      // Include optimizedPrompt if available
+      // Include optimized prompt if available
       const requestData = {
         features: {
           ...formData,
-          // Include the optimized prompt if available and PACE was used
-          optimized_prompt: formData.prompt_approach === "PACE" && optimizedPrompt ? optimizedPrompt : undefined
+          optimized_prompt: formData.prompt_approach === "PACE" && isPromptOptimized 
+            ? currentPrompt 
+            : undefined
         },
         connection_id: connectionId
       };
