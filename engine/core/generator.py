@@ -1,7 +1,7 @@
 """
 Generator for creating synthetic data.
 """
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 from core.llm import LLMClient
 from core.promptline import Promptline
 from utils.logger import Logger
@@ -45,38 +45,62 @@ class Generator:
         total_samples = int(features['total_samples'])
         samples_per_prompt = int(features['samples_per_prompt'])
         
-        # Generate samples until we have enough
-        while len(all_samples) < total_samples:
-            samples_needed = total_samples - len(all_samples)
-            request_count = min(samples_needed, samples_per_prompt)
+        # Get atomic configurations from promptline
+        atomic_configs = self._promptline.get_atomic_configurations(features)
+        n_configs = len(atomic_configs)
+        
+        # Calculate samples per configuration
+        base_count = total_samples // n_configs
+        remainder = total_samples % n_configs
+        
+        # Track progress across all configurations
+        progress_total = 0
+        
+        # Generate samples for each atomic configuration
+        for i, config in enumerate(atomic_configs):
+            # Calculate samples for this config (distribute remainder)
+            samples_for_config = base_count + (1 if i < remainder else 0)
             
-            # Generate samples
-            new_samples, received_count = await self._generate_samples(
-                features=features,
-                samples_needed=samples_needed,
-                samples_per_prompt=request_count
-            )
-            
-            # Check if we received fewer samples than requested (token limit)
-            if received_count < request_count and received_count > 0:
-                self._fewer_samples_received = True
+            if samples_for_config <= 0:
+                continue
                 
-                self._logger.log_error(
-                    f"Received fewer samples than requested ({received_count}/{request_count}), likely due to output token limit.",
-                    "generator",
-                    {"config": features}
+            # Generate samples until we have enough for this config
+            config_samples = []
+            while len(config_samples) < samples_for_config:
+                samples_needed = samples_for_config - len(config_samples)
+                request_count = min(samples_needed, samples_per_prompt)
+                
+                # Generate samples for this atomic configuration
+                new_samples, received_count = await self._generate_samples(
+                    features=config,
+                    samples_needed=samples_needed,
+                    samples_per_prompt=request_count
                 )
-            
-            # Add new samples to our collection
-            if new_samples:
-                all_samples.extend(new_samples)
                 
-                # Update progress if callback provided
-                if progress_callback:
-                    progress = min(100, (len(all_samples) / total_samples) * 100)
-                    await track_progress(progress_callback, progress)
-            else:
-                break
+                # Check if we received fewer samples than requested (token limit)
+                if received_count < request_count and received_count > 0:
+                    self._fewer_samples_received = True
+                    
+                    self._logger.log_error(
+                        f"Received fewer samples than requested ({received_count}/{request_count}), likely due to output token limit.",
+                        "generator",
+                        {"config": config}
+                    )
+                
+                # Add new samples to this config's collection
+                if new_samples:
+                    config_samples.extend(new_samples)
+                else:
+                    break
+            
+            # Add samples from this config to the overall collection
+            all_samples.extend(config_samples)
+            
+            # Update progress if callback provided
+            if progress_callback:
+                progress_total += len(config_samples)
+                progress = min(100, (progress_total / total_samples) * 100)
+                await track_progress(progress_callback, progress)
             
         # Update progress to 100% when done
         if progress_callback:

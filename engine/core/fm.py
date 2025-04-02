@@ -10,8 +10,9 @@ class Feature:
     
     Attributes:
         name: The display name of the feature
-        feature_type: The type of UI control ('select', 'input', 'group')
+        feature_type: The type of UI control ('select', 'input', 'group', 'multi-select')
         options: Available options for select-type features
+        multiple: Whether multiple selections are allowed
         subfeatures: Nested features organized in a dictionary
     """
     def __init__(
@@ -19,11 +20,13 @@ class Feature:
         name: str, 
         feature_type: str, 
         options: Optional[List[str]] = None, 
+        multiple: bool = False,
         subfeatures: Optional[Dict[str, 'Feature']] = None
     ) -> None:
         self.name = name
         self.feature_type = feature_type
         self.options = options or []
+        self.multiple = multiple
         self.subfeatures = subfeatures or {}
 
 
@@ -44,15 +47,15 @@ class FM:
             'artifact': Feature('Requirements Artifact', 'group', subfeatures={
                 'specification_format': Feature('Specification Format', 'select', [
                     'NL', 'Constrained NL', 'Use Case', 'User Story'
-                ]),
+                ], multiple=True),
                 'specification_level': Feature('Specification Level', 'select', [
                     'High', 'Detailed'
-                ]),
+                ], multiple=True),
                 'stakeholder': Feature('Stakeholder', 'select', [
                     'End Users', 'Business Managers', 'Developers', 'Regulatory Bodies'
-                ]),
-                'domain': Feature('Domain', 'input'),
-                'language': Feature('Language', 'input'),
+                ], multiple=True),
+                'domain': Feature('Domain', 'input', multiple=True),
+                'language': Feature('Language', 'input', multiple=True),
             }),
             
             # Generator

@@ -35,7 +35,7 @@ class PromptPreviewRequest(BaseModel):
     features: Dict[str, Any]
 
 class PromptPreviewResponse(BaseModel):
-    prompt: str
+    atomic_prompts: Optional[List[Dict[str, Any]]] = None
 
 class OptimizePromptRequest(BaseModel):
     features: Dict[str, Any]
@@ -114,13 +114,17 @@ async def get_features() -> Dict[str, Any]:
 
 @app.post("/preview-prompt", response_model=PromptPreviewResponse)
 async def preview_prompt(request: PromptPreviewRequest) -> PromptPreviewResponse:
-    """Generate a prompt preview based on the provided configuration."""
+    """Preview atomic prompts based on the provided configuration."""
     if not promptline:
         raise HTTPException(status_code=503, detail="Promptline service not initialized")
     
-    prompt = promptline.build(request.features)
+    atomic_prompts = None
+    try:
+        atomic_prompts = promptline.get_atomic_prompts(request.features)
+    except Exception as e:
+        logger.log_error(f"Failed to generate atomic prompts: {str(e)}", "api")
     
-    return PromptPreviewResponse(prompt=prompt)
+    return PromptPreviewResponse(atomic_prompts=atomic_prompts)
 
 @app.post("/generate", response_model=GenerationResponse)
 async def generate_samples(request: GenerationRequest) -> GenerationResponse:

@@ -16,17 +16,17 @@ import { Input } from "@/components/ui/input";
 interface FormData {
   label: string;
   label_definition: string;
-  domain: string;
-  language: string;
+  domain: string | string[];
+  language: string | string[];
   output_format: "CSV" | "JSON";
   temperature: number;
   top_p: number;
   total_samples: number;
   samples_per_prompt: number;
   llm: string;
-  specification_format: string;
-  specification_level: string;
-  stakeholder: string;
+  specification_format: string | string[];
+  specification_level: string | string[];
+  stakeholder: string | string[];
   prompt_approach: string;
   pace_iterations: number;
   pace_actors: number;
@@ -46,6 +46,20 @@ interface Results {
   fewer_samples_received?: boolean;
 }
 
+interface AtomicPrompt {
+  config: {
+    label: string;
+    label_definition: string;
+    specification_format: string | string[];
+    specification_level: string | string[];
+    stakeholder: string | string[];
+    domain: string | string[];
+    language: string | string[];
+    samples_per_prompt: number;
+  };
+  prompt: string;
+}
+
 // Constants
 const SPECIFICATION_FORMATS = ["NL", "Constrained NL", "Use Case", "User Story"];
 const SPECIFICATION_LEVELS = ["High", "Detailed"];
@@ -55,8 +69,13 @@ const LLM_OPTIONS = [
   { value: "deepseek-chat", label: "deepseek-chat" }
 ];
 const REQUIRED_FIELDS: (keyof FormData)[] = [
-  'label', 'label_definition', 'domain', 'language',
-  'specification_format', 'specification_level', 'stakeholder'
+  'label', 
+  'label_definition', 
+  'domain',
+  'language',
+  'specification_format', 
+  'specification_level', 
+  'stakeholder'
 ];
 
 export default function SynthlineApp() {
@@ -64,17 +83,17 @@ export default function SynthlineApp() {
   const initialFormState: FormData = {
     label: "",
     label_definition: "",
-    domain: "",
-    language: "",
+    domain: [],
+    language: [],
     output_format: "CSV",
     temperature: 0.6,
     top_p: 0.9,
     total_samples: 10,
     samples_per_prompt: 5,
     llm: "gpt-4o",
-    specification_format: "",
-    specification_level: "",
-    stakeholder: "",
+    specification_format: [],
+    specification_level: [],
+    stakeholder: [],
     prompt_approach: "Default",
     pace_iterations: 3,
     pace_actors: 4,
@@ -93,6 +112,8 @@ export default function SynthlineApp() {
   const [connectionId] = useState(() => uuidv4());
   const [optimizationSuccess, setOptimizationSuccess] = useState<string | null>(null);
   const [isPromptOptimized, setIsPromptOptimized] = useState(false);
+  const [atomicPrompts, setAtomicPrompts] = useState<AtomicPrompt[]>([]);
+  const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
   
   // WebSocket handling
   useEffect(() => {
@@ -116,12 +137,8 @@ export default function SynthlineApp() {
           case 'optimize_complete':
             setIsOptimizingPrompt(false);
             setProgress(100);
-            
-            const optimizedPrompt = data.optimized_prompt;
-            
-            setCurrentPrompt(optimizedPrompt);
+            setCurrentPrompt(data.optimized_prompt);
             setIsPromptOptimized(true);
-            
             setOptimizationSuccess(`Prompt optimization complete!`);
             setTimeout(() => setOptimizationSuccess(null), 10000);
             break;
@@ -136,61 +153,72 @@ export default function SynthlineApp() {
             break;
         }
       } catch (error) {
-        console.error("WebSocket message parsing error:", error, event.data);
+        console.error("WebSocket message parsing error:", error);
       }
     };
     
     return () => ws.close();
   }, [connectionId]);
 
-  // Automatic prompt preview
+  // Check if a field has valid content
+  const hasValidValue = (field: keyof FormData): boolean => {
+    const value = formData[field];
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'string') return value.trim() !== '';
+    return value !== undefined && value !== null;
+  };
+
+  // Fetch prompt preview when form data changes
   useEffect(() => {
-    const missingFields = REQUIRED_FIELDS.filter(field => !formData[field]);
-    if (missingFields.length === 0) {
-      generatePromptPreview();
+    const missingRequiredFields = REQUIRED_FIELDS.filter(field => !hasValidValue(field));
+    
+    if (missingRequiredFields.length === 0) {
+      const fetchPromptPreview = async () => {
+        try {
+          const response = await fetch('/api/preview-prompt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ features: formData })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.atomic_prompts?.length > 0) {
+              setAtomicPrompts(data.atomic_prompts);
+              setCurrentPromptIndex(0);
+            } else {
+              setAtomicPrompts([]);
+              setCurrentPrompt(data.prompt);
+            }
+          }
+        } catch (err) {
+          console.error('Preview generation failed:', err);
+        }
+      };
+      
+      fetchPromptPreview();
     } else {
       setCurrentPrompt("");
+      setAtomicPrompts([]);
     }
-  }, [
-    formData.label, 
-    formData.label_definition, 
-    formData.domain, 
-    formData.language,
-    formData.specification_format, 
-    formData.specification_level, 
-    formData.stakeholder,
-    formData.samples_per_prompt
-  ]);
+  }, [formData]);
 
-  const generatePromptPreview = async () => {
-    try {
-      const response = await fetch('/api/preview-prompt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ features: formData })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Preview generation failed:', errorData);
-        return;
-      }
-      
-      const data = await response.json();
-      setCurrentPrompt(data.prompt);
-    } catch (err) {
-      console.error('Preview generation failed:', err);
-    }
-  };
-
-  // Handlers
+  // Form validation
   const validateForm = (): string => {
-    const missingFields = REQUIRED_FIELDS.filter(field => !formData[field]);
-    return missingFields.length > 0 
-      ? `Please fill in: ${missingFields.join(', ')}` 
-      : '';
+    const missingFields = REQUIRED_FIELDS.filter(field => !hasValidValue(field));
+    
+    if (missingFields.length > 0) {
+      const displayNames = missingFields.map(field => 
+        field.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())
+      );
+      
+      return `Please fill in: ${displayNames.join(', ')}`;
+    }
+    
+    return '';
   };
   
+  // Form handlers
   const handleInputChange = <K extends keyof FormData>(field: K, value: FormData[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
@@ -288,21 +316,32 @@ export default function SynthlineApp() {
     window.open(`/api/download?path=${encodeURIComponent(results.output_path)}`, '_blank');
   };
 
-  // Component to render option buttons
-  const OptionButtons = ({ 
+  // UI Components
+  const MultiSelectTags = ({ 
     options, 
     selected, 
     fieldName 
   }: { 
     options: string[], 
-    selected: string, 
+    selected: string | string[], 
     fieldName: keyof FormData 
   }) => {
+    const selectedArray = Array.isArray(selected) ? selected : selected ? [selected] : [];
+    
+    const toggleSelection = (item: string) => {
+      if (selectedArray.includes(item)) {
+        const newSelections = selectedArray.filter(i => i !== item);
+        handleInputChange(fieldName, newSelections.length ? newSelections : []);
+      } else {
+        handleInputChange(fieldName, [...selectedArray, item]);
+      }
+    };
+    
     return (
       <div className="flex flex-wrap gap-2 mt-2">
         {options.map((item) => {
-          // Determine the classes based on selection and loading states
-          const selectedClass = selected === item 
+          const isSelected = selectedArray.includes(item);
+          const selectedClass = isSelected
             ? "bg-[#8A2BE2] border-[#8A2BE2] text-white" 
             : "bg-[#1A1A1A] border-[#2A2A2A] text-zinc-300 hover:bg-[#222222] hover:border-[#8A2BE2]";
           
@@ -312,12 +351,76 @@ export default function SynthlineApp() {
             <div
               key={item}
               className={`border rounded-lg px-4 py-2 text-sm cursor-pointer transition-colors ${selectedClass} ${disabledClass}`}
-              onClick={() => handleInputChange(fieldName, item)}
+              onClick={() => toggleSelection(item)}
             >
-              {item}
+              {item} {isSelected}
             </div>
           );
         })}
+      </div>
+    );
+  };
+
+  const MultiInputField = ({ 
+    fieldName,
+    placeholder,
+    label
+  }: { 
+    fieldName: keyof FormData,
+    placeholder: string,
+    label: string
+  }) => {
+    const [inputValue, setInputValue] = useState("");
+    const values = Array.isArray(formData[fieldName]) ? formData[fieldName] : 
+                   formData[fieldName] ? [formData[fieldName]] : [];
+    
+    const addValue = () => {
+      if (inputValue.trim()) {
+        handleInputChange(fieldName, [...values, inputValue.trim()]);
+        setInputValue("");
+      }
+    };
+    
+    const removeValue = (value: string) => {
+      const newValues = values.filter(v => v !== value);
+      handleInputChange(fieldName, newValues.length ? newValues : []);
+    };
+    
+    return (
+      <div className="space-y-2">
+        <Label className="text-white text-base font-medium">{label}</Label>
+        <div className="flex gap-2">
+          <Input 
+            type="text"
+            placeholder={placeholder}
+            className="bg-[#1A1A1A] border-[#2A2A2A] text-white"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addValue())}
+            disabled={isGenerating || isOptimizingPrompt}
+          />
+          <Button 
+            onClick={addValue}
+            disabled={isGenerating || isOptimizingPrompt || !inputValue.trim()}
+            className="bg-[#8A2BE2] hover:bg-opacity-80 text-white"
+          >
+            Add
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-2">
+          {values.map((value, index) => (
+            <div key={index} className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-lg px-3 py-1 flex items-center gap-2">
+              <span className="text-white">{value}</span>
+              <button 
+                className="text-zinc-400 hover:text-white"
+                onClick={() => removeValue(value)}
+                disabled={isGenerating || isOptimizingPrompt}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     );
   };
@@ -381,7 +484,7 @@ export default function SynthlineApp() {
               <div className="space-y-6">
                 <div className="space-y-2">
                   <Label className="text-white text-base font-medium">Specification Format</Label>
-                  <OptionButtons 
+                  <MultiSelectTags 
                     options={SPECIFICATION_FORMATS} 
                     selected={formData.specification_format} 
                     fieldName="specification_format" 
@@ -392,7 +495,7 @@ export default function SynthlineApp() {
 
                 <div className="space-y-2">
                   <Label className="text-white text-base font-medium">Specification Level</Label>
-                  <OptionButtons 
+                  <MultiSelectTags 
                     options={SPECIFICATION_LEVELS} 
                     selected={formData.specification_level} 
                     fieldName="specification_level" 
@@ -403,7 +506,7 @@ export default function SynthlineApp() {
 
                 <div className="space-y-2">
                   <Label className="text-white text-base font-medium">Stakeholder</Label>
-                  <OptionButtons 
+                  <MultiSelectTags 
                     options={STAKEHOLDERS} 
                     selected={formData.stakeholder} 
                     fieldName="stakeholder" 
@@ -413,30 +516,16 @@ export default function SynthlineApp() {
                 <div className="h-px bg-[#2A2A2A] my-4"></div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label className="text-white text-base font-medium">Domain</Label>
-                    <Input 
-                      type="text"
-                      placeholder="e.g., Banking"
-                      className="bg-[#1A1A1A] border-[#2A2A2A] text-white"
-                      value={formData.domain}
-                      onChange={(e) => handleInputChange('domain', e.target.value)}
-                      required
-                      disabled={isGenerating || isOptimizingPrompt}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-white text-base font-medium">Language</Label>
-                    <Input 
-                      type="text"
-                      placeholder="e.g., English"
-                      className="bg-[#1A1A1A] border-[#2A2A2A] text-white"
-                      value={formData.language}
-                      onChange={(e) => handleInputChange('language', e.target.value)}
-                      required
-                      disabled={isGenerating || isOptimizingPrompt}
-                    />
-                  </div>
+                  <MultiInputField 
+                    fieldName="domain"
+                    placeholder="e.g., Banking"
+                    label="Domain (add multiple)"
+                  />
+                  <MultiInputField 
+                    fieldName="language"
+                    placeholder="e.g., English"
+                    label="Language (add multiple)"
+                  />
                 </div>
               </div>
             </Card>
@@ -575,7 +664,7 @@ export default function SynthlineApp() {
                         className="py-4"
                         disabled={isGenerating || isOptimizingPrompt}
                       />
-                      <p className="text-xs text-zinc-500">Number of parallel LLM evaluations to collect feedback for each prompt</p>
+                      <p className="text-xs text-zinc-500">Number of parallel LLM evaluations per prompt</p>
                     </div>
 
                     <div className="space-y-2">
@@ -623,19 +712,57 @@ export default function SynthlineApp() {
                 )}
 
                 <div>
-                  <Label className="text-white text-sm font-medium">Prompt Preview</Label>
+                  <div className="flex justify-between items-center mb-2">
+                    <Label className="text-white text-sm font-medium">Prompt Preview</Label>
+                    
+                    {atomicPrompts.length > 1 && (
+                      <div className="flex items-center space-x-2 text-sm">
+                        <span className="text-zinc-400">
+                          {currentPromptIndex + 1} of {atomicPrompts.length} atomic prompts
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPromptIndex(Math.max(0, currentPromptIndex - 1))}
+                          disabled={currentPromptIndex === 0 || isGenerating || isOptimizingPrompt}
+                          className="h-8 px-2"
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPromptIndex(Math.min(atomicPrompts.length - 1, currentPromptIndex + 1))}
+                          disabled={currentPromptIndex === atomicPrompts.length - 1 || isGenerating || isOptimizingPrompt}
+                          className="h-8 px-2"
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  
                   <Textarea
-                    value={currentPrompt}
+                    value={atomicPrompts.length > 0 ? atomicPrompts[currentPromptIndex]?.prompt || '' : currentPrompt}
                     className="bg-[#1A1A1A] border-[#2A2A2A] text-white h-40 resize-none"
-                    placeholder="Prompt preview once all required fields are filled"
+                    placeholder="Complete all required fields to see prompt preview"
                     readOnly
                     disabled={isGenerating || isOptimizingPrompt}
                   />
-                  <p className="text-xs text-zinc-500 mt-2 italic">
-                  {formData.prompt_approach === "PACE" 
-                      ? "This is the optimized prompt that will be used for generation"
-                      : "This prompt will be used for generation"}
-                  </p>
+                  
+                  {atomicPrompts.length > 0 && (
+                    <div className="mt-2 text-xs text-zinc-500">
+                      <div className="font-medium text-zinc-400 mb-1">Current atomic configuration:</div>
+                      {Object.entries(atomicPrompts[currentPromptIndex]?.config || {})
+                        .filter(([key]) => ['specification_format', 'specification_level', 'stakeholder', 'domain', 'language'].includes(key))
+                        .map(([key, value]) => (
+                          <div key={key} className="text-zinc-500">
+                            • <span className="text-zinc-400">{key}:</span> {value?.toString()}
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
                 </div>
               </div>
             </Card>
@@ -735,5 +862,5 @@ export default function SynthlineApp() {
         </div>
       </div>
     </div>
-  )
+  );
 }
