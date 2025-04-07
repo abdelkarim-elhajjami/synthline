@@ -11,6 +11,7 @@ from core.llm import LLMClient
 from utils.logger import Logger
 from utils.parsing import parse_completion
 from utils.progress import ProgressCallback, track_progress
+from utils.ctx import SystemContext
 
 class PACE:
     """Implements the PACE approach for prompt optimization."""
@@ -32,7 +33,7 @@ class PACE:
         n_iterations: Optional[int] = None,
         n_actors: Optional[int] = None,
         n_candidates: Optional[int] = None,
-        connections: Optional[Dict[str, Any]] = None
+        system_ctx: Optional[SystemContext] = None
     ) -> List[Tuple[str, float, Dict[str, Any]]]:
         """
         Optimize multiple prompts in parallel (one for each atomic configuration).
@@ -68,7 +69,7 @@ class PACE:
                     n_iterations=n_iterations,
                     n_actors=n_actors,
                     n_candidates=n_candidates,
-                    connections=connections,
+                    system_ctx=system_ctx,
                     atomic_config_index=i,
                     total_configs=total_configs
                 )
@@ -96,8 +97,8 @@ class PACE:
             await track_progress(progress_callback, 100)
         
         # Send final batch results via WebSocket if available
-        if connections and features.get('connection_id'):
-            websocket = connections.get(features['connection_id'])
+        if system_ctx and features.get('connection_id'):
+            websocket = system_ctx.get_connection(features['connection_id'])
             if websocket:
                 try:
                     await websocket.send_json({
@@ -131,7 +132,7 @@ class PACE:
         n_iterations: Optional[int] = None,
         n_actors: Optional[int] = None,
         n_candidates: Optional[int] = None,
-        connections: Optional[Dict[str, Any]] = None,
+        system_ctx: Optional[SystemContext] = None,
         atomic_config_index: Optional[int] = None,
         total_configs: Optional[int] = None
     ) -> Tuple[str, float]:
@@ -205,23 +206,24 @@ class PACE:
                     current_prompt = candidate_prompt
                     
                     # Send update via WebSocket if connection exists
-                    websocket = connections.get(features.get('connection_id'))
-                    if websocket:
-                        try:
-                            await websocket.send_json({
-                                "type": "prompt_update",
-                                "prompt": best_prompt,
-                                "score": best_score,
-                                "iteration": t + 1,
-                                "atomic_config_index": atomic_config_index,
-                                "total_configs": total_configs
-                            })
-                        except Exception as ws_error:
-                            self._logger.log_error(
-                                f"WebSocket send error: {str(ws_error)}", 
-                                "pace", 
-                                {"iteration": t + 1}
-                            )
+                    if system_ctx and features.get('connection_id'):
+                        websocket = system_ctx.get_connection(features['connection_id'])
+                        if websocket:
+                            try:
+                                await websocket.send_json({
+                                    "type": "prompt_update",
+                                    "prompt": best_prompt,
+                                    "score": best_score,
+                                    "iteration": t + 1,
+                                    "atomic_config_index": atomic_config_index,
+                                    "total_configs": total_configs
+                                })
+                            except Exception as ws_error:
+                                self._logger.log_error(
+                                    f"WebSocket send error: {str(ws_error)}", 
+                                    "pace", 
+                                    {"iteration": t + 1}
+                                )
                 
                 # Report completion of this iteration
                 if progress_callback:

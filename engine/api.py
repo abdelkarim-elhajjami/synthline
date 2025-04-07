@@ -15,6 +15,7 @@ from core.llm import LLMClient
 from core.output import Output
 from core.promptline import Promptline
 from utils.logger import Logger
+from utils.ctx import SystemContext
 
 API_TITLE = "Synthline API"
 ALLOWED_ORIGINS = ["http://localhost:3000", "http://web:3000"]
@@ -53,9 +54,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Store active WebSocket connections
-connections: Dict[str, WebSocket] = {}
-
 # Application components
 features: Optional[Dict[str, Any]] = None
 llm_client: Optional[LLMClient] = None  
@@ -63,11 +61,12 @@ promptline: Optional[Promptline] = None
 output: Optional[Output] = None
 generator: Optional[Generator] = None
 logger: Optional[Logger] = None
+system_ctx: Optional[SystemContext] = None
 
 @app.on_event("startup")
 async def startup_event() -> None:
     """Initialize application components on startup."""
-    global features, llm_client, promptline, output, generator, logger
+    global features, llm_client, promptline, output, generator, logger, system_ctx
     
     # Get API keys
     deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
@@ -82,6 +81,7 @@ async def startup_event() -> None:
         promptline = Promptline(llm_client=llm_client, logger=logger)
         output = Output(logger=logger, output_dir=OUTPUT_DIR)
         generator = Generator(llm=llm_client, promptline=promptline, logger=logger)
+        system_ctx = SystemContext()
         print("Synthline API initialized successfully")
     except Exception as e:
         error_msg = f"Error during startup: {e}"
@@ -94,12 +94,12 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str) -> None:
     """Handle WebSocket connections for real-time progress updates."""
     try:
         await websocket.accept()
-        connections[connection_id] = websocket
+        system_ctx.add_connection(connection_id, websocket)
         try:
             while True:
                 await websocket.receive_text()
         except WebSocketDisconnect:
-            connections.pop(connection_id, None)
+            system_ctx.remove_connection(connection_id)
     except Exception as e:
         error_message = f"WebSocket error: {str(e)}"
         logger.log_error(error_message, "websocket", {"connection_id": connection_id})
@@ -132,9 +132,11 @@ async def generate_samples(request: GenerationRequest) -> GenerationResponse:
     if not generator or not output:
         raise HTTPException(status_code=503, detail="Services not initialized")
     
-    websocket = connections.get(request.connection_id)
+    # Set current connection in system context
+    system_ctx.set_current_connection(request.connection_id)
     
     async def progress_callback(progress: float) -> None:
+        websocket = system_ctx.get_connection()
         if websocket:
             await websocket.send_json({"type": "progress", "progress": progress})
     
@@ -152,6 +154,7 @@ async def generate_samples(request: GenerationRequest) -> GenerationResponse:
     )
     
     # Send completion
+    websocket = system_ctx.get_connection()
     if websocket:
         await websocket.send_json({"type": "complete", "progress": 100})
     
@@ -167,17 +170,18 @@ async def start_optimize(request: OptimizePromptRequest) -> Dict[str, Any]:
     if not promptline:
         raise HTTPException(status_code=503, detail="Promptline service not initialized")
     
-    websocket = connections.get(request.connection_id)
+    websocket = system_ctx.get_connection(request.connection_id)
     if not websocket:
         raise HTTPException(status_code=400, detail="WebSocket connection not found")
     
-    request.features['connections'] = connections
+    # Prepare clean features without operational concerns
+    features = request.features.copy()
     
     try:
         # Start optimization in background task
         asyncio.create_task(
             run_optimization(
-                request.features,
+                features,
                 request.connection_id
             )
         )
@@ -193,22 +197,26 @@ async def run_optimization(
     connection_id: str
 ) -> None:
     """Run optimization in the background and send results via WebSocket."""
-    websocket = connections.get(connection_id)
+    websocket = system_ctx.get_connection(connection_id)
     if not websocket:
         error_message = f"WebSocket connection lost: {connection_id}"
         logger.log_error(error_message, "pace_background")
         return
     
     try:
+        # Set the current connection
+        system_ctx.set_current_connection(connection_id)
+        
         # Progress callback function
         async def progress_callback(progress: float) -> None:
-            if websocket:
+            ws = system_ctx.get_connection()
+            if ws:
                 try:
-                    await websocket.send_json({"type": "progress", "progress": progress})
+                    await ws.send_json({"type": "progress", "progress": progress})
                 except Exception as ws_e:
                     logger.log_error(f"Failed to send progress: {str(ws_e)}", "websocket")
         
-        # Add connection_id to features
+        # Add connection_id to features for context identification only
         features['connection_id'] = connection_id
         
         # Get atomic configurations
@@ -225,9 +233,11 @@ async def run_optimization(
         optimized_results = await promptline.optimize_batch(
             atomic_configs=atomic_configs,
             features=features,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            system_ctx=system_ctx
         )
         
+        websocket = system_ctx.get_connection()
         if websocket:
             try:
                 # Filter out non-serializable objects from configs
@@ -235,6 +245,7 @@ async def run_optimization(
                 for prompt, score, atomic_config in optimized_results:
                     clean_atomic_config = {}
                     for k, v in atomic_config.items():
+                        # Exclude operational system context properties
                         if k != 'connections' and not isinstance(v, WebSocket):
                             clean_atomic_config[k] = v
                     
@@ -257,6 +268,7 @@ async def run_optimization(
             logger.log_error(error_message, "pace_background", {"connection_id": connection_id})
         
         # Send error to client
+        websocket = system_ctx.get_connection()
         if websocket:
             try:
                 await websocket.send_json({

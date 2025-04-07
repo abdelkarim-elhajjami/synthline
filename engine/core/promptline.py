@@ -7,6 +7,7 @@ from itertools import product
 from core.llm import LLMClient
 from core.pace import PACE
 from utils.logger import Logger
+from utils.ctx import SystemContext
 
 class Promptline:
     """Builds parameterized and optionally optimized prompts for data generation."""
@@ -119,18 +120,24 @@ Include only the JSON array. No additional text.'''
         self,
         atomic_configs: List[Dict[str, Any]],
         features: Dict[str, Any],
-        progress_callback: Optional[Callable[[float], Awaitable[None]]] = None
+        progress_callback: Optional[Callable[[float], Awaitable[None]]] = None,
+        system_ctx: Optional['SystemContext'] = None
     ) -> List[Tuple[str, float, Dict[str, Any]]]:
         """
         Optimize multiple prompts for different atomic configurations.
         
+        Args:
+            atomic_configs: List of atomic configurations to optimize
+            features: Base features dict
+            progress_callback: Optional callback for reporting progress
+            system_ctx: System context containing operational concerns
+            
         Returns:
             List of (optimized_prompt, score, config) tuples
         """
         n_iterations = int(features.get('pace_iterations'))
         n_actors = int(features.get('pace_actors'))
         n_candidates = int(features.get('pace_candidates'))
-        connections = features.get('connections')
         
         # Call the PACE optimizer with the batch of prompts
         pace_optimizer = PACE(llm_client=self._llm, logger=self._logger)
@@ -141,5 +148,5 @@ Include only the JSON array. No additional text.'''
             n_iterations=n_iterations,
             n_actors=n_actors,
             n_candidates=n_candidates,
-            connections=connections
+            system_ctx=system_ctx
         )
