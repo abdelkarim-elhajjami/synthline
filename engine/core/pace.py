@@ -3,6 +3,7 @@ Implementation of PACE (Prompt Actor-Critic Editing) for Synthline.
 https://aclanthology.org/2024.findings-acl.436/
 """
 from typing import Any, Dict, List, Tuple, Optional
+import asyncio
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_distances
@@ -22,8 +23,107 @@ class PACE:
         self._llm = llm_client
         self._logger = logger
         self._model = SentenceTransformer('all-MiniLM-L6-v2')
+    
+    async def optimize_batch(
+        self,
+        atomic_configs: List[Dict[str, Any]],
+        features: Dict[str, Any],
+        progress_callback: ProgressCallback = None,
+        n_iterations: Optional[int] = None,
+        n_actors: Optional[int] = None,
+        n_candidates: Optional[int] = None,
+        connections: Optional[Dict[str, Any]] = None
+    ) -> List[Tuple[str, float, Dict[str, Any]]]:
+        """
+        Optimize multiple prompts in parallel (one for each atomic configuration).
+        """
+        tasks = []
+        total_configs = len(atomic_configs)
         
-    async def optimize(
+        completed_iterations = 0
+        total_iterations = total_configs * n_iterations
+        
+        # Function to update progress when an iteration completes
+        async def update_progress():
+            nonlocal completed_iterations
+            completed_iterations += 1
+            progress = (completed_iterations / total_iterations) * 100
+            if progress_callback:
+                await track_progress(progress_callback, progress)
+        
+        # Create optimization tasks for each atomic config
+        for i, atomic_config in enumerate(atomic_configs):
+            # Create a merged feature dict with both base and atomic config
+            features_merged = {**features, **atomic_config}
+            
+            # Generate initial prompt for this config if not provided
+            initial_prompt = atomic_config.get('prompt', None)
+            
+            # Create a task for optimizing this prompt
+            task = asyncio.create_task(
+                self._optimize_atomic_prompt(
+                    features=features_merged,
+                    progress_callback=update_progress,
+                    initial_prompt=initial_prompt,
+                    n_iterations=n_iterations,
+                    n_actors=n_actors,
+                    n_candidates=n_candidates,
+                    connections=connections,
+                    atomic_config_index=i,
+                    total_configs=total_configs
+                )
+            )
+            tasks.append((task, atomic_config))
+        
+        results = []
+        
+        # Wait for all tasks to complete and collect results
+        for task, atomic_config in tasks:
+            try:
+                prompt, score = await task
+                results.append((prompt, score, atomic_config))
+            except Exception as e:
+                self._logger.log_error(
+                    f"Optimization failed for atomic_config: {str(e)}", 
+                    "pace_batch", 
+                    {"atomic_config": str(atomic_config)}
+                )
+                # Add empty result for failed config
+                results.append(("", 0.0, atomic_config))
+        
+        # Ensure progress reaches 100% when finished
+        if progress_callback:
+            await track_progress(progress_callback, 100)
+        
+        # Send final batch results via WebSocket if available
+        if connections and features.get('connection_id'):
+            websocket = connections.get(features['connection_id'])
+            if websocket:
+                try:
+                    await websocket.send_json({
+                        "type": "optimize_complete_batch",
+                        "optimized_results": [
+                            {
+                                "prompt": prompt,
+                                "score": float(score),
+                                "atomic_config": {
+                                    k: v for k, v in atomic_config.items()
+                                    if k in ['label', 'label_definition', 'specification_format', 
+                                           'specification_level', 'stakeholder', 'domain', 
+                                           'language', 'samples_per_prompt']
+                                }
+                            } for prompt, score, atomic_config in results
+                        ]
+                    })
+                except Exception as ws_error:
+                    self._logger.log_error(
+                        f"Failed to send batch completion: {str(ws_error)}", 
+                        "websocket"
+                    )
+        
+        return results
+    
+    async def _optimize_atomic_prompt(
         self,
         features: Dict[str, Any],
         progress_callback: ProgressCallback = None,
@@ -31,9 +131,11 @@ class PACE:
         n_iterations: Optional[int] = None,
         n_actors: Optional[int] = None,
         n_candidates: Optional[int] = None,
-        connections: Optional[Dict[str, Any]] = None
+        connections: Optional[Dict[str, Any]] = None,
+        atomic_config_index: Optional[int] = None,
+        total_configs: Optional[int] = None
     ) -> Tuple[str, float]:
-        """Run the PACE optimization."""        
+        """Optimize a single atomic prompt using PACE."""        
         # Initialization:
         current_prompt = initial_prompt
         best_prompt = current_prompt
@@ -95,14 +197,15 @@ class PACE:
                         self._logger.log_prompt(
                             prompt=best_prompt,
                             score=best_score,
-                            event="NEW BEST PROMPT"
+                            event="NEW BEST PROMPT",
+                            config=features
                         )
                     
                     # Update current prompt for next iteration
                     current_prompt = candidate_prompt
                     
                     # Send update via WebSocket if connection exists
-                    websocket = connections.get(features['connection_id'])
+                    websocket = connections.get(features.get('connection_id'))
                     if websocket:
                         try:
                             await websocket.send_json({
@@ -110,6 +213,8 @@ class PACE:
                                 "prompt": best_prompt,
                                 "score": best_score,
                                 "iteration": t + 1,
+                                "atomic_config_index": atomic_config_index,
+                                "total_configs": total_configs
                             })
                         except Exception as ws_error:
                             self._logger.log_error(
@@ -118,21 +223,18 @@ class PACE:
                                 {"iteration": t + 1}
                             )
                 
-                # Report progress
+                # Report completion of this iteration
                 if progress_callback:
-                    await track_progress(progress_callback, ((t+1) / n_iterations) * 100)
+                    await progress_callback()
         except Exception as e:
             self._logger.log_error(f"PACE optimization error: {str(e)}", "pace", {"features": str(features)})
-        
-        # Final progress update
-        if progress_callback:
-            await track_progress(progress_callback, 100)
         
         # Log final results
         self._logger.log_prompt(
             prompt=best_prompt,
             score=best_score,
-            event="FINAL OPTIMIZED PROMPT"
+            event="FINAL OPTIMIZED PROMPT",
+            config=features
         )
         
         return best_prompt, best_score
@@ -219,7 +321,7 @@ Your task: Critique how the output fails to meet these expectations. Focus only 
         self, 
         current_prompt: str, 
         feedback_list: List[str],
-        features: Dict[str, Any]
+        atomic_config: Dict[str, Any]
     ) -> str:
         """Update the prompt based on collected feedback."""
         
@@ -236,7 +338,7 @@ Rewrite the instruction to address the feedback.
 Return only the new instruction as plain text — no extra text, quotes, or formatting."""
 
         update_settings = {
-            'llm': features['llm'],
+            'llm': atomic_config['llm'],
             'temperature': 0.0,
             'top_p': 1.0
         }

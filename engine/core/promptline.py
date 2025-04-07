@@ -2,12 +2,11 @@
 Prompt manager for Synthline.
 Builds prompts for LLM calls and manages PACE optimization.
 """
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional, Callable, Awaitable
 from itertools import product
 from core.llm import LLMClient
 from core.pace import PACE
 from utils.logger import Logger
-from utils.progress import ProgressCallback
 
 class Promptline:
     """Builds parameterized and optionally optimized prompts for data generation."""
@@ -74,7 +73,7 @@ Include only the JSON array. No additional text.'''
                 # Skip features that don't have multiple values
                 configs_by_feature[feature] = [value] if value else [""]
         
-        all_configurations = []
+        all_atomic_configs = []
         feature_names = list(configs_by_feature.keys())
         
         product_of_values = product(*(configs_by_feature[f] for f in feature_names))
@@ -84,9 +83,9 @@ Include only the JSON array. No additional text.'''
             for feature_name, selected_value in zip(feature_names, tuple_of_values):
                 if selected_value:
                     atomic_config[feature_name] = selected_value
-            all_configurations.append(atomic_config)
+            all_atomic_configs.append(atomic_config)
         
-        return all_configurations
+        return all_atomic_configs
     
     def build(self, features: Dict[str, Any]) -> str:
         """Build a prompt string using the provided features."""
@@ -116,39 +115,31 @@ Include only the JSON array. No additional text.'''
             
         return atomic_prompts
     
-    async def optimize(self, 
-                      features: Dict[str, Any], 
-                      progress_callback: ProgressCallback = None) -> Tuple[str, float]:
+    async def optimize_batch(
+        self,
+        atomic_configs: List[Dict[str, Any]],
+        features: Dict[str, Any],
+        progress_callback: Optional[Callable[[float], Awaitable[None]]] = None
+    ) -> List[Tuple[str, float, Dict[str, Any]]]:
         """
-        Optimize a prompt using PACE if selected in features.
+        Optimize multiple prompts for different atomic configurations.
         
         Returns:
-            Tuple of (optimized prompt, optimization score)
+            List of (optimized_prompt, score, config) tuples
         """
-        if self._optimizer is None:
-            self._optimizer = PACE(
-                llm_client=self._llm,
-                logger=self._logger
-            )
-            
-        # Generate initial prompt from templates
-        initial_prompt = self.build(features)
+        n_iterations = int(features.get('pace_iterations'))
+        n_actors = int(features.get('pace_actors'))
+        n_candidates = int(features.get('pace_candidates'))
+        connections = features.get('connections')
         
-        # Configure optimizer with features
-        n_iterations = int(features['pace_iterations'])
-        n_actors = int(features['pace_actors'])
-        n_candidates = int(features['pace_candidates'])
-        connections = features['connections']
-        
-        # Run optimization
-        optimized_prompt, score = await self._optimizer.optimize(
+        # Call the PACE optimizer with the batch of prompts
+        pace_optimizer = PACE(llm_client=self._llm, logger=self._logger)
+        return await pace_optimizer.optimize_batch(
+            atomic_configs=atomic_configs,
             features=features,
             progress_callback=progress_callback,
-            initial_prompt=initial_prompt,
             n_iterations=n_iterations,
             n_actors=n_actors,
             n_candidates=n_candidates,
             connections=connections
         )
-        
-        return optimized_prompt, score

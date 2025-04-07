@@ -42,8 +42,9 @@ class Logger:
     
     def log_prompt(self, 
                   prompt: str,
-                  score: Optional[float] = None,
-                  event: Optional[str] = None) -> Optional[Path]:
+                  score: float,
+                  event: str,
+                  config: Dict[str, Any]) -> Path:
         """Log prompt optimization events."""
         
         self.log_dir.mkdir(exist_ok=True, parents=True)
@@ -51,18 +52,22 @@ class Logger:
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         
-        if event == "NEW BEST PROMPT":
-            log_type = "update"
-        elif event == "FINAL OPTIMIZED PROMPT":
-            log_type = "final"
+        config_str = f"{config['specification_format']}_{config['specification_level']}_{config['stakeholder']}"
+        config_str = config_str.replace(' ', '_').replace(',', '-')
         
-        log_file = self.pace_dir / f"{log_type}_{timestamp}.json"
+        log_type = "update" if event == "NEW BEST PROMPT" else "final"
+        log_file = self.pace_dir / f"{log_type}_{config_str}_{timestamp}.json"
         
         log_data = {
             "timestamp": timestamp,
             "event": event,
             "prompt": prompt,
-            "score": score
+            "score": score,
+            "config": {
+                k: v for k, v in config.items()
+                if k in ['label', 'label_definition', 'specification_format', 
+                        'specification_level', 'stakeholder', 'domain', 'language']
+            }
         }
         
         self._write_json(log_file, log_data)

@@ -45,8 +45,24 @@ class Generator:
         total_samples = int(features['total_samples'])
         samples_per_prompt = int(features['samples_per_prompt'])
         
-        # Get atomic configurations from promptline
-        atomic_configs = self._promptline.get_atomic_configurations(features)
+        llm_settings = {k: features[k] for k in ['llm', 'temperature', 'top_p']}
+        
+        # Check for optimized atomic prompts
+        if 'optimized_atomic_prompts' in features:
+            # Use pre-optimized atomic prompts directly
+            atomic_configs = []
+            for optimized_prompt_data in features['optimized_atomic_prompts']:
+                config = {**llm_settings, **optimized_prompt_data['config']}
+                config['optimized_prompt'] = optimized_prompt_data['optimized_prompt']
+                atomic_configs.append(config)
+        else:
+            # Get atomic configurations from promptline
+            atomic_configs = self._promptline.get_atomic_configurations(features)
+            
+            for config in atomic_configs:
+                for key, value in llm_settings.items():
+                    config[key] = value
+        
         n_configs = len(atomic_configs)
         
         # Calculate samples per configuration
@@ -72,7 +88,7 @@ class Generator:
                 
                 # Generate samples for this atomic configuration
                 new_samples, received_count = await self._generate_samples(
-                    features=config,
+                    atomic_config=config,
                     samples_needed=samples_needed,
                     samples_per_prompt=request_count
                 )
@@ -110,15 +126,15 @@ class Generator:
     
     async def _generate_samples(
         self, 
-        features: Dict[str, Any], 
+        atomic_config: Dict[str, Any],
         samples_needed: int, 
         samples_per_prompt: int
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
-        Generate samples for a specific feature configuration.
+        Generate samples for a specific atomic configuration.
         
         Args:
-            features: Feature configuration dictionary
+            atomic_config: Atomic configuration dictionary
             samples_needed: Number of samples needed
             samples_per_prompt: Number of samples to request per prompt
             
@@ -128,35 +144,35 @@ class Generator:
         new_samples = []
         
         # Check if we have an optimized prompt
-        if 'optimized_prompt' in features:
-            prompt = features['optimized_prompt']
+        if 'optimized_prompt' in atomic_config:
+            prompt = atomic_config['optimized_prompt']
         else:
-            prompt = self._promptline.build(features)
+            prompt = self._promptline.build(atomic_config)
         
         try:
-            completion_list = await self._llm.get_batch_completions([prompt], features)
+            completion_list = await self._llm.get_batch_completions([prompt], atomic_config)
             completion = completion_list[0]
             
             sample_texts = parse_completion(completion, samples_per_prompt)
             
             for sample_text in sample_texts[:samples_needed]:
                 if sample_text and sample_text.strip():
-                    new_samples.append(self._create_sample(sample_text.strip(), features))
+                    new_samples.append(self._create_sample(sample_text.strip(), atomic_config))
         
         except Exception as e:
             error_msg = f"Error generating from configuration: {e}"
-            self._logger.log_error(error_msg, "generator", features)
+            self._logger.log_error(error_msg, "generator", atomic_config)
         
         return new_samples, len(sample_texts)
 
-    def _create_sample(self, sample_text: str, features: Dict[str, Any]) -> Dict[str, Any]:
+    def _create_sample(self, sample_text: str, atomic_config: Dict[str, Any]) -> Dict[str, Any]:
         """Create a structured sample from text and configuration."""
         return {
             "text": sample_text,
-            "label": features['label'],
-            "domain": features['domain'],
-            "language": features['language'],
-            "stakeholder": features['stakeholder'],
-            "specification_format": features['specification_format'],
-            "specification_level": features['specification_level']
+            "label": atomic_config['label'],
+            "domain": atomic_config['domain'],
+            "language": atomic_config['language'],
+            "stakeholder": atomic_config['stakeholder'],
+            "specification_format": atomic_config['specification_format'],
+            "specification_level": atomic_config['specification_level']
         }

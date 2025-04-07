@@ -171,7 +171,6 @@ async def start_optimize(request: OptimizePromptRequest) -> Dict[str, Any]:
     if not websocket:
         raise HTTPException(status_code=400, detail="WebSocket connection not found")
     
-    # Add connections to feature values for WebSocket updates
     request.features['connections'] = connections
     
     try:
@@ -212,22 +211,45 @@ async def run_optimization(
         # Add connection_id to features
         features['connection_id'] = connection_id
         
-        # Use promptline to handle the optimization
-        optimized_prompt, score = await promptline.optimize(
+        # Get atomic configurations
+        atomic_configs = promptline.get_atomic_configurations(features)
+        
+        atomic_prompts = promptline.get_atomic_prompts(features)
+        
+        # Map the prompts to the configurations
+        for i, atomic_config in enumerate(atomic_configs):
+            if i < len(atomic_prompts):
+                atomic_config['prompt'] = atomic_prompts[i]['prompt']
+        
+        # Use PACE to optimize all configurations in parallel
+        optimized_results = await promptline.optimize_batch(
+            atomic_configs=atomic_configs,
             features=features,
             progress_callback=progress_callback
         )
         
-        # Send final result
         if websocket:
             try:
+                # Filter out non-serializable objects from configs
+                serializable_results = []
+                for prompt, score, atomic_config in optimized_results:
+                    clean_atomic_config = {}
+                    for k, v in atomic_config.items():
+                        if k != 'connections' and not isinstance(v, WebSocket):
+                            clean_atomic_config[k] = v
+                    
+                    serializable_results.append({
+                        "prompt": prompt,
+                        "score": float(score),
+                        "atomic_config": clean_atomic_config
+                    })
+                
                 await websocket.send_json({
-                    "type": "optimize_complete",
-                    "optimized_prompt": optimized_prompt,
-                    "score": float(score)
+                    "type": "optimize_complete_batch",
+                    "optimized_results": serializable_results
                 })
             except Exception as ws_e:
-                logger.log_error(f"Failed to send completion: {str(ws_e)}", "websocket")
+                logger.log_error(f"Failed to send optimization batch completion: {str(ws_e)}", "websocket")
     
     except Exception as e:
         error_message = str(e)

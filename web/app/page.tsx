@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { v4 as uuidv4 } from 'uuid';
 import { DownloadIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -58,6 +58,7 @@ interface AtomicPrompt {
     samples_per_prompt: number;
   };
   prompt: string;
+  score: number;
 }
 
 // Constants
@@ -86,8 +87,8 @@ export default function SynthlineApp() {
     domain: [],
     language: [],
     output_format: "CSV",
-    temperature: 0.6,
-    top_p: 0.9,
+    temperature: 1.0,
+    top_p: 1.0,
     total_samples: 10,
     samples_per_prompt: 5,
     llm: "gpt-4o",
@@ -114,6 +115,7 @@ export default function SynthlineApp() {
   const [isPromptOptimized, setIsPromptOptimized] = useState(false);
   const [atomicPrompts, setAtomicPrompts] = useState<AtomicPrompt[]>([]);
   const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
+  const [optimizedAtomicPrompts, setOptimizedAtomicPrompts] = useState<AtomicPrompt[]>([]);
   
   // WebSocket handling
   useEffect(() => {
@@ -131,7 +133,22 @@ export default function SynthlineApp() {
             break;
           
           case 'prompt_update':
-            setCurrentPrompt(data.prompt);
+            if (data.config_index !== undefined) {
+              setAtomicPrompts(prevPrompts => {
+                if (data.config_index < prevPrompts.length) {
+                  const updatedPrompts = [...prevPrompts];
+                  updatedPrompts[data.config_index] = {
+                    ...updatedPrompts[data.config_index],
+                    prompt: data.prompt,
+                    score: data.score
+                  };
+                  return updatedPrompts;
+                }
+                return prevPrompts;
+              });
+            } else {
+              setCurrentPrompt(data.prompt);
+            }
             break;
           
           case 'optimize_complete':
@@ -140,6 +157,28 @@ export default function SynthlineApp() {
             setCurrentPrompt(data.optimized_prompt);
             setIsPromptOptimized(true);
             setOptimizationSuccess(`Prompt optimization complete!`);
+            setTimeout(() => setOptimizationSuccess(null), 10000);
+            break;
+          
+          case 'optimize_complete_batch':
+            setIsOptimizingPrompt(false);
+            setProgress(100);
+            
+            // Format the optimized batch results into atomic prompts
+            const optimizedPrompts = data.optimized_results.map((result: {
+              prompt: string;
+              score: number;
+              atomic_config: Record<string, unknown>;
+            }) => ({
+              config: result.atomic_config as AtomicPrompt['config'],
+              prompt: result.prompt,
+              score: result.score
+            }));
+            
+            setOptimizedAtomicPrompts(optimizedPrompts);
+            setIsPromptOptimized(true);
+            setCurrentPromptIndex(0);
+            setOptimizationSuccess(`Optimization complete!`);
             setTimeout(() => setOptimizationSuccess(null), 10000);
             break;
           
@@ -161,12 +200,12 @@ export default function SynthlineApp() {
   }, [connectionId]);
 
   // Check if a field has valid content
-  const hasValidValue = (field: keyof FormData): boolean => {
+  const hasValidValue = useCallback((field: keyof FormData): boolean => {
     const value = formData[field];
     if (Array.isArray(value)) return value.length > 0;
     if (typeof value === 'string') return value.trim() !== '';
     return value !== undefined && value !== null;
-  };
+  }, [formData]);
 
   // Fetch prompt preview when form data changes
   useEffect(() => {
@@ -201,7 +240,7 @@ export default function SynthlineApp() {
       setCurrentPrompt("");
       setAtomicPrompts([]);
     }
-  }, [formData]);
+  }, [formData, hasValidValue]);
 
   // Form validation
   const validateForm = (): string => {
@@ -274,16 +313,24 @@ export default function SynthlineApp() {
     setProgress(0);
     
     try {
-      // Include optimized prompt if available
       const requestData = {
         features: {
-          ...formData,
-          optimized_prompt: formData.prompt_approach === "PACE" && isPromptOptimized 
-            ? currentPrompt 
-            : undefined
+          ...formData
         },
         connection_id: connectionId
       };
+      
+      // Add optimized prompts if we're using PACE and have optimized prompts
+      if (formData.prompt_approach === "PACE" && isPromptOptimized) {
+        if (optimizedAtomicPrompts.length > 0) {
+          (requestData.features as Record<string, unknown>).optimized_atomic_prompts = optimizedAtomicPrompts.map(p => ({
+            config: p.config,
+            optimized_prompt: p.prompt
+          }));
+        } else if (currentPrompt) {
+          (requestData.features as Record<string, unknown>).optimized_prompt = currentPrompt;
+        }
+      }
       
       const response = await fetch('/api/generate', {
         method: 'POST',
@@ -743,7 +790,13 @@ export default function SynthlineApp() {
                   </div>
                   
                   <Textarea
-                    value={atomicPrompts.length > 0 ? atomicPrompts[currentPromptIndex]?.prompt || '' : currentPrompt}
+                    value={
+                      formData.prompt_approach === "PACE" && isPromptOptimized && optimizedAtomicPrompts.length > 0
+                        ? optimizedAtomicPrompts[currentPromptIndex]?.prompt || ''
+                        : atomicPrompts.length > 0 
+                          ? atomicPrompts[currentPromptIndex]?.prompt || '' 
+                          : currentPrompt
+                    }
                     className="bg-[#1A1A1A] border-[#2A2A2A] text-white h-40 resize-none"
                     placeholder="Complete all required fields to see prompt preview"
                     readOnly
