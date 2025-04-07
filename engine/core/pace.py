@@ -284,10 +284,10 @@ class PACE:
 It produced the following output:
 {action}
 
-Expected output format: a JSON array of strings, e.g.:
+Expected output format: a strictly valid JSON array of strings, e.g.:
 [
-  "1st requirement text",
-  "2nd requirement text"
+  "First requirement text here",
+  "Second requirement text here"
 ]
 
 Each requirement must:
