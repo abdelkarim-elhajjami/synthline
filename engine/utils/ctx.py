@@ -1,13 +1,9 @@
-"""
-System context for Synthline.
-"""
+"""System context for WebSocket connections."""
 from typing import Dict, Optional
 from fastapi import WebSocket
 
 class SystemContext:
-    """
-    Container for system-level operational concerns.
-    """
+    """Container for WebSocket connections and current connection state."""
     def __init__(self):
         """Initialize system context."""
         self.connections: Dict[str, WebSocket] = {}
@@ -22,7 +18,7 @@ class SystemContext:
         self.connections.pop(connection_id, None)
         
     def get_connection(self, connection_id: Optional[str] = None) -> Optional[WebSocket]:
-        """Get a WebSocket connection by ID or using the current connection ID."""
+        """Get WebSocket by ID or current connection ID."""
         conn_id = connection_id or self.connection_id
         return self.connections.get(conn_id) if conn_id else None
         

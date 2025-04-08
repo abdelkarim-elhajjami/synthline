@@ -6,14 +6,14 @@ from typing import Dict, List, Optional
 
 class Feature:
     """
-    Represents a configurable feature with its properties and sub-features.
+    Configurable feature with properties and sub-features.
     
     Attributes:
-        name: The display name of the feature
-        feature_type: The type of UI control ('select', 'input', 'group', 'multi-select')
+        name: Display name
+        feature_type: UI control type ('select', 'input', 'group', 'multi-select')
         options: Available options for select-type features
         multiple: Whether multiple selections are allowed
-        subfeatures: Nested features organized in a dictionary
+        subfeatures: Nested features in a dictionary
     """
     def __init__(
         self, 
@@ -31,10 +31,7 @@ class Feature:
 
 
 class FM:
-    """
-    Feature Manager for Synthline.
-    Manages the structure of configurable features.
-    """
+    """Feature Manager for managing configurable features."""
     def __init__(self) -> None:
         self.features: Dict[str, Feature] = {
             # Classification

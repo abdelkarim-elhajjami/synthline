@@ -44,7 +44,6 @@ Include only the JSON array. No additional text.'''
         """Initialize the promptline manager."""
         self._llm = llm_client
         self._logger = logger
-        self._optimizer = None
         self._multiple_select_features = [
             "specification_format",
             "specification_level",
