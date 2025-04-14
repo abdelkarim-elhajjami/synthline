@@ -27,11 +27,6 @@ class GenerationRequest(BaseModel):
     features: Dict[str, Any]
     connection_id: str
 
-class GenerationResponse(BaseModel):
-    samples: List[Dict[str, Any]]
-    output_path: str
-    fewer_samples_received: bool = False
-
 class PromptPreviewRequest(BaseModel):
     features: Dict[str, Any]
 
@@ -126,43 +121,105 @@ async def preview_prompt(request: PromptPreviewRequest) -> PromptPreviewResponse
     
     return PromptPreviewResponse(atomic_prompts=atomic_prompts)
 
-@app.post("/generate", response_model=GenerationResponse)
-async def generate_samples(request: GenerationRequest) -> GenerationResponse:
+@app.post("/generate")
+async def start_generation(request: GenerationRequest) -> Dict[str, Any]:
     """Generate samples based on the provided configuration."""
     if not generator or not output:
         raise HTTPException(status_code=503, detail="Services not initialized")
     
-    # Set current connection in system context
-    system_ctx.set_current_connection(request.connection_id)
+    websocket = system_ctx.get_connection(request.connection_id)
+    if not websocket:
+        raise HTTPException(status_code=400, detail="WebSocket connection not found")
     
-    async def progress_callback(progress: float) -> None:
-        websocket = system_ctx.get_connection()
+    # Prepare clean features without operational concerns
+    features = request.features.copy()
+    
+    try:
+        # Start generation in background task
+        asyncio.create_task(
+            run_generation(
+                features,
+                request.connection_id
+            )
+        )
+        
+        return {
+            "status": "generation_started", 
+            "connection_id": request.connection_id
+        }
+    except Exception as e:
+        error_message = f"Failed to start generation: {str(e)}"
+        logger.log_error(error_message, "generate_start", {"connection_id": request.connection_id})
+        raise HTTPException(status_code=500, detail=error_message)
+
+async def run_generation(
+    features: Dict[str, Any],
+    connection_id: str
+) -> None:
+    """Run generation in the background and send results via WebSocket."""
+    websocket = system_ctx.get_connection(connection_id)
+    if not websocket:
+        error_message = f"WebSocket connection lost: {connection_id}"
+        logger.log_error(error_message, "generation_background")
+        return
+    
+    try:
+        # Set the current connection
+        system_ctx.set_current_connection(connection_id)
+        
+        # Progress callback function
+        async def progress_callback(progress: float) -> None:
+            ws = system_ctx.get_connection(connection_id)
+            if ws:
+                try:
+                    await ws.send_json({"type": "progress", "progress": progress})
+                except Exception as ws_e:
+                    logger.log_error(f"Failed to send progress: {str(ws_e)}", "websocket")
+        
+        # Generate samples
+        samples = await generator.generate(
+            features=features,
+            progress_callback=progress_callback
+        )
+        
+        # Save results to file
+        output_path = output.save(
+            samples=samples, 
+            format=features['output_format'], 
+            features=features
+        )
+        
+        # Send results to client via WebSocket
+        websocket = system_ctx.get_connection(connection_id)
         if websocket:
-            await websocket.send_json({"type": "progress", "progress": progress})
+            try:
+                await websocket.send_json({
+                    "type": "generation_complete",
+                    "samples": samples,
+                    "output_path": str(output_path),
+                    "fewer_samples_received": generator._fewer_samples_received
+                })
+                
+                # Send completion event
+                await websocket.send_json({"type": "complete", "progress": 100})
+            except Exception as ws_e:
+                logger.log_error(f"Failed to send generation results: {str(ws_e)}", "websocket")
     
-    # Generate samples
-    samples = await generator.generate(
-        features=request.features,
-        progress_callback=progress_callback
-    )
-    
-    # Save and return results
-    output_path = output.save(
-        samples=samples, 
-        format=request.features['output_format'], 
-        features=request.features
-    )
-    
-    # Send completion
-    websocket = system_ctx.get_connection()
-    if websocket:
-        await websocket.send_json({"type": "complete", "progress": 100})
-    
-    return GenerationResponse(
-        samples=samples,
-        output_path=str(output_path),
-        fewer_samples_received=generator._fewer_samples_received
-    )
+    except Exception as e:
+        error_message = str(e)
+        if logger:
+            logger.log_error(error_message, "generation_background", {"connection_id": connection_id})
+        
+        # Send error to client
+        websocket = system_ctx.get_connection(connection_id)
+        if websocket:
+            try:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Generation error: {error_message}"
+                })
+            except Exception as ws_e:
+                logger.log_error(f"Failed to send error: {str(ws_e)}", "websocket")
 
 @app.post("/optimize-prompt")
 async def start_optimize(request: OptimizePromptRequest) -> Dict[str, Any]:
@@ -209,7 +266,7 @@ async def run_optimization(
         
         # Progress callback function
         async def progress_callback(progress: float) -> None:
-            ws = system_ctx.get_connection()
+            ws = system_ctx.get_connection(connection_id)
             if ws:
                 try:
                     await ws.send_json({"type": "progress", "progress": progress})

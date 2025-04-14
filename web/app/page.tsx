@@ -182,9 +182,25 @@ export default function SynthlineApp() {
             setTimeout(() => setOptimizationSuccess(null), 10000);
             break;
           
+          case 'generation_complete':
+            setIsGenerating(false);
+            setProgress(100);
+            setResults({
+              samples: data.samples,
+              output_path: data.output_path,
+              fewer_samples_received: data.fewer_samples_received
+            });
+            setStatus(`Generation complete! ${data.samples.length} samples generated`);
+            
+            if (data.fewer_samples_received) {
+              setStatus(prev => prev + " (Note: Fewer samples were received than requested due to token limits)");
+            }
+            break;
+          
           case 'error':
             setError(data.message);
             setIsOptimizingPrompt(false);
+            setIsGenerating(false);
             break;
           
           case 'complete':
@@ -343,17 +359,15 @@ export default function SynthlineApp() {
         throw new Error(errorData.error || 'Generation failed');
       }
       
-      const data = await response.json();
-      setResults(data);
-      setStatus(`Generation complete! ${data.samples.length} samples generated`);
+      // Success response just indicates the generation is running
+      // Actual results will come via WebSocket
+      await response.json();
       
-      if (data.fewer_samples_received) {
-        setStatus(prev => prev + " (Note: Fewer samples were received than requested due to token limits)");
-      }
+      // The UI will stay in "generating" state until the "generation_complete" 
+      // event is received via WebSocket
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred during generation');
       setStatus("Generation failed");
-    } finally {
       setIsGenerating(false);
     }
   };

@@ -12,15 +12,27 @@ export async function POST(request: Request) {
     });
     
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorText = await response.text();
+      let errorDetail = 'Generation failed';
+      
+      try {
+        const errorData = JSON.parse(errorText);
+        errorDetail = errorData.detail || errorDetail;
+      } catch {
+        errorDetail = errorText || errorDetail;
+      }
+      
       return NextResponse.json(
-        { error: errorData.detail || 'Generation failed' },
+        { error: errorDetail },
         { status: response.status }
       );
     }
     
-    const data = await response.json();
-    return NextResponse.json(data);
+    // Return success immediately - the actual results will come via WebSocket
+    return NextResponse.json({ 
+      success: true, 
+      message: "Generation running. Updates via WebSocket." 
+    });
   } catch (error) {
     return handleApiError(error, 'Failed to generate samples');
   }
