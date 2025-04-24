@@ -67,7 +67,8 @@ const SPECIFICATION_LEVELS = ["High", "Detailed"];
 const STAKEHOLDERS = ["End Users", "Business Managers", "Developers", "Regulatory Bodies"];
 const LLM_OPTIONS = [
   { value: "gpt-4o", label: "gpt-4o" },
-  { value: "deepseek-chat", label: "deepseek-chat" }
+  { value: "deepseek-chat", label: "deepseek-chat" },
+  { value: "ollama/mistral-small3.1", label: "ollama/mistral-small3.1" }
 ];
 const REQUIRED_FIELDS: (keyof FormData)[] = [
   'label', 

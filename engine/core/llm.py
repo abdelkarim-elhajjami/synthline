@@ -7,17 +7,20 @@ from openai import AsyncClient
 from utils.logger import Logger
 
 class LLMClient:
-    """Client for OpenAI and DeepSeek APIs."""
+    """Client for OpenAI, DeepSeek, and Ollama APIs."""
     
     def __init__(self, 
                  logger: Logger,
                  deepseek_key: Optional[str] = None, 
-                 openai_key: Optional[str] = None):
-        """Initialize the LLM client with API keys."""
+                 openai_key: Optional[str] = None,
+                 ollama_base_url: Optional[str] = None):
+        """Initialize the LLM client with API keys and base URLs."""
         self._deepseek_key = deepseek_key
         self._openai_key = openai_key
+        self._ollama_base_url = ollama_base_url
         self._deepseek_client = None
         self._openai_client = None
+        self._ollama_client = None
         self._logger = logger
         
         self._request_timeout = 120
@@ -26,7 +29,17 @@ class LLMClient:
     def _get_client(self, model: str) -> AsyncClient:
         """Return the API client for the specified model."""
         
-        if model == 'deepseek-chat':
+        if model.startswith('ollama/'):
+            if not self._ollama_client:
+                self._ollama_client = AsyncClient(
+                    base_url=self._ollama_base_url,
+                    api_key="dummy",
+                    timeout=self._request_timeout,
+                    max_retries=self._max_retries
+                )
+            return self._ollama_client
+            
+        elif model == 'deepseek-chat':
             if not self._deepseek_key:
                 error_msg = "DeepSeek API key is missing. Cannot use deepseek-chat model."
                 self._logger.log_error(error_msg, "llm", {"model": model})
@@ -66,10 +79,11 @@ class LLMClient:
         """Generate a completion for a given prompt using the specified LLM."""
         
         client = self._get_client(model)
+        model_name = model.split('/')[-1] if model.startswith('ollama/') else model
         
         try:
             completion = await client.chat.completions.create(
-                model=model,
+                model=model_name,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
                 top_p=top_p
@@ -100,7 +114,6 @@ class LLMClient:
                                     prompts: List[str],
                                     features: Dict[str, Any]) -> List[str]:
         """Generate completions for a batch of prompts using the specified LLM."""
-        
         try:
             model = features['llm']
             temperature = float(features['temperature'])

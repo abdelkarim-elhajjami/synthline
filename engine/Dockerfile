@@ -40,7 +40,8 @@ ENV PATH="/venv/bin:$PATH"
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/engine
+    PYTHONPATH=/engine \
+    OLLAMA_BASE_URL="http://host.docker.internal:11434/v1"
 
 # Create non-root user and necessary directories
 RUN useradd -m -s /bin/bash appuser \

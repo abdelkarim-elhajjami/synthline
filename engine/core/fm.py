@@ -4,6 +4,7 @@ Defines and manages configurable features for data generation.
 """
 from typing import Dict, List, Optional
 
+
 class Feature:
     """
     Configurable feature with properties and sub-features.
@@ -57,7 +58,11 @@ class FM:
             
             # Generator
             'generator': Feature('Generator', 'group', subfeatures={
-                'llm': Feature('LLM', 'select', ['deepseek-chat', 'gpt-4o']),
+                'llm': Feature('LLM', 'select', [
+                    'deepseek-chat', 
+                    'gpt-4o',
+                    'ollama/mistral-small3.1'
+                ]),
                 'temperature': Feature('Temperature', 'input'),
                 'top_p': Feature('Top P', 'input'),
                 'samples_per_prompt': Feature('Samples Per Prompt', 'input'),

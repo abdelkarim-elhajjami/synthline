@@ -63,16 +63,23 @@ async def startup_event() -> None:
     """Initialize application components on startup."""
     global features, llm_client, promptline, output, generator, logger, system_ctx
     
-    # Get API keys
+    # Get API keys and URLs
     deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
     openai_key = os.environ.get("OPENAI_API_KEY")
+    ollama_base_url = os.environ.get("OLLAMA_BASE_URL")
+    
     if not deepseek_key and not openai_key:
-        print("Warning: No API keys found in environment variables.")
+        print("Warning: No DeepSeek or OpenAI API keys found. Only local models will be available unless keys are provided.")
     
     try:
         logger = Logger(base_dir=LOGS_DIR)
         features = FM().features
-        llm_client = LLMClient(logger=logger, deepseek_key=deepseek_key, openai_key=openai_key)
+        llm_client = LLMClient(
+            logger=logger, 
+            deepseek_key=deepseek_key, 
+            openai_key=openai_key,
+            ollama_base_url=ollama_base_url
+        )
         promptline = Promptline(llm_client=llm_client, logger=logger)
         output = Output(logger=logger, output_dir=OUTPUT_DIR)
         generator = Generator(llm=llm_client, promptline=promptline, logger=logger)

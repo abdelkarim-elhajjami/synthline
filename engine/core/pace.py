@@ -13,6 +13,7 @@ from utils.parsing import parse_completion
 from utils.progress import ProgressCallback, track_progress
 from utils.ctx import SystemContext
 
+
 class PACE:
     """Implements the PACE approach for prompt optimization."""
     def __init__(
@@ -23,7 +24,7 @@ class PACE:
         """Initialize the PACE optimizer."""
         self._llm = llm_client
         self._logger = logger
-        self._model = SentenceTransformer('all-MiniLM-L6-v2')
+        self._model = SentenceTransformer('all-mpnet-base-v2')
     
     async def optimize_batch(
         self,

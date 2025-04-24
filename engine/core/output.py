@@ -27,9 +27,10 @@ class Output:
         """Get the output path for the generated data."""
         self.output_dir.mkdir(exist_ok=True, parents=True)
         llm = features['llm']
+        llm_name = llm.split('/')[-1] if llm.startswith('ollama/') else llm
         label = features['label']
-        llm_dir = self.output_dir / llm
-        llm_dir.mkdir(exist_ok=True)
+        llm_dir = self.output_dir / llm_name
+        llm_dir.mkdir(exist_ok=True, parents=True)
         filename = self._generate_filename(label, num_samples)
         return llm_dir / filename
 
