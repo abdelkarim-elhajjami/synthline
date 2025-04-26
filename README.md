@@ -4,11 +4,11 @@ Synthline is a tool for generating high-quality synthetic data for requirements 
 
 ## Overview
 
-Synthline generates high-quality synthetic data for training and evaluating AI models in Requirements Engineering. It uses large language models (GPT-4o, DeepSeek) to produce realistic requirements with configurable properties.
+Synthline generates high-quality synthetic data for training and evaluating AI models in Requirements Engineering. It uses large language models (gpt-4.1-nano-2025-04-14, DeepSeek) to produce realistic requirements with configurable properties.
 
 ### Key Features
 
-- **LLM-Powered Generation**: Using GPT-4o and DeepSeek models
+- **LLM-Powered Generation**: Using gpt-4.1-nano-2025-04-14 and DeepSeek models
 - **Highly Configurable**: Control all aspects of generated requirements
 - **Multiple Output Formats**: Export as JSON or CSV
 - **Web Interface**: Intuitive UI for configuration
@@ -35,7 +35,7 @@ To use PACE:
 
 - [Docker](https://www.docker.com/get-started) and Docker Compose
 - API Keys:
-  - [OpenAI API Key](https://platform.openai.com/) (for GPT-4o)
+  - [OpenAI API Key](https://platform.openai.com/) (for gpt-4.1-nano-2025-04-14)
   - [DeepSeek API Key](https://www.deepseek.com/) (for DeepSeek models)
 
 ### Installation
@@ -81,7 +81,7 @@ Synthline offers various configuration options for generating requirements:
 
 ### Generator Settings
 
-- **LLM**: Select the language model (GPT-4o, DeepSeek)
+- **LLM**: Select the language model (gpt-4.1-nano-2025-04-14, DeepSeek)
 - **Temperature**: Controls randomness (0-2)
 - **Top P**: Controls diversity (0-1)
 - **Samples Per Prompt**: Number of samples in each LLM request

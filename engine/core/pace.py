@@ -264,9 +264,9 @@ class PACE:
             return "[ERROR: Actor failed to generate output]"
     
     async def _run_critic(
-        self, 
+        self,
         prompt: str,
-        action: str, 
+        action: str,
         features: Dict[str, Any]
     ) -> str:
         """Run the critic to provide a critique with suggestions for refining the prompt."""
@@ -278,20 +278,17 @@ class PACE:
         stakeholder = features['stakeholder']
         specification_format = features['specification_format']
         specification_level = features['specification_level']
-        
+
         critique_prompt = f"""Instruction given:
 "{prompt}"
 
 It produced the following output:
 {action}
 
-Expected output format: a strictly valid JSON array of strings, e.g.:
-[
-  "First requirement text here",
-  "Second requirement text here"
-]
+First, verify the output format. The output must be a strictly valid JSON array of strings, like `["item1", "item2", ...]`. Is the output above in this exact format?
 
-Each requirement must:
+Second, verify the content requirements:
+Each requirement string within the JSON array must:
 - Be {label} (Definition: {label_definition}).
 - Be written in {language}.
 - Pertain to a {domain} system.
@@ -299,9 +296,9 @@ Each requirement must:
 - Follow the {specification_format} format.
 - Be specified at a {specification_level} level.
 
-The full set should also be diverse enough for robust AI training.
+The full set of requirements in the array should also be diverse enough for robust AI training.
 
-Your task: Critique how the output fails to meet these expectations. Focus only on these points—don't suggest changes beyond them."""        
+Your task: Critique how the output fails to meet these expectations."""        
         
         critic_settings = {
             'llm': features['llm'],
@@ -315,30 +312,28 @@ Your task: Critique how the output fails to meet these expectations. Focus only 
                 features=critic_settings
             )
             return completions[0] if completions else "[ERROR: No critique generated]"
-            
+
         except Exception as e:
             self._logger.log_error(f"Critic error: {str(e)}", "pace", {"prompt": prompt, "action": action})
             return "[ERROR: Critic failed to provide feedback]"
     
     async def _update_prompt(
-        self, 
-        current_prompt: str, 
+        self,
+        current_prompt: str,
         feedback_list: List[str],
         atomic_config: Dict[str, Any]
     ) -> str:
-        """Update the prompt based on collected feedback."""
-        
+        """Update the prompt based on collected feedback, ensuring format instructions are preserved."""
+
         combined_feedback = "\n\n".join([f"Feedback {i+1}:\n{fb}" for i, fb in enumerate(feedback_list)])
-        
-        update_prompt = f"""Instruction given:
+        update_prompt = f"""Original Instruction:
 "{current_prompt}"
 
-Feedback:
+Critiques based on the Original Instruction's output:
 {combined_feedback}
 
-Rewrite the instruction to address the feedback.
-
-Return only the new instruction as plain text — no extra text, quotes, or formatting."""
+Your task: Rewrite the Original Instruction to address the Critiques, while maintaining the directive to output a strictly valid JSON array of strings.
+Return only the new Instruction as plain text — no extra text, quotes, or formatting."""
 
         update_settings = {
             'llm': atomic_config['llm'],
@@ -351,27 +346,41 @@ Return only the new instruction as plain text — no extra text, quotes, or form
                 prompts=[update_prompt],
                 features=update_settings
             )
-            
-            return completions[0] if completions else current_prompt
-            
+            return completions[0].strip() if completions and completions[0] else current_prompt
+
         except Exception as e:
             self._logger.log_error(f"Update error: {str(e)}", "pace", {"current_prompt": current_prompt})
             return current_prompt
     
     def _evaluate_prompt(
-        self, 
-        raw_completions: List[str], 
+        self,
+        raw_completions: List[str],
         samples_per_prompt: int,
     ) -> float:
-        """Evaluate the prompt through the cosine distance of corresponding generated samples."""
+        """Evaluate the prompt based on the diversity of generated samples.
+        Returns 0.0 if any completion fails to parse correctly or yields the wrong number of samples.
+        """
         try:
             parsed_samples = []
             
             for raw_completion in raw_completions:
                 parsed = parse_completion(raw_completion, samples_per_prompt)
-                if parsed:
-                    parsed_samples.extend(parsed)
-                    
+                # Strict check 1: Did parsing fail completely?
+                if parsed is None:
+                    return 0.0
+
+                # Strict check 2: Did parsing yield the exact number of expected samples?
+                if len(parsed) != samples_per_prompt:
+                    return 0.0
+
+                # If checks pass, add the valid samples
+                parsed_samples.extend(parsed)
+
+            # Need at least two samples to calculate pairwise distance
+            if len(parsed_samples) <= 1:
+                 return 0.0
+
+            # Calculate embeddings and cosine distances
             embeddings = self._model.encode(parsed_samples)
             distances = cosine_distances(embeddings)
             avg_distance = np.mean(distances[np.triu_indices(len(parsed_samples), k=1)])
@@ -379,7 +388,7 @@ Return only the new instruction as plain text — no extra text, quotes, or form
             
         except Exception as e:
             self._logger.log_error(
-                f"Evaluation error: {str(e)}", 
-                "pace"
+                f"Evaluation error: {str(e)}",
+                "pace_eval"
             )
-            return -1.0
+            return 0.0

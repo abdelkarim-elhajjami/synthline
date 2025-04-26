@@ -66,7 +66,7 @@ const SPECIFICATION_FORMATS = ["NL", "Constrained NL", "Use Case", "User Story"]
 const SPECIFICATION_LEVELS = ["High", "Detailed"];
 const STAKEHOLDERS = ["End Users", "Business Managers", "Developers", "Regulatory Bodies"];
 const LLM_OPTIONS = [
-  { value: "gpt-4o", label: "gpt-4o" },
+  { value: "gpt-4.1-nano-2025-04-14", label: "gpt-4.1-nano-2025-04-14" },
   { value: "deepseek-chat", label: "deepseek-chat" },
   { value: "ollama/mistral-small3.1", label: "ollama/mistral-small3.1" }
 ];
@@ -92,7 +92,7 @@ export default function SynthlineApp() {
     top_p: 1.0,
     total_samples: 10,
     samples_per_prompt: 5,
-    llm: "gpt-4o",
+    llm: "gpt-4.1-nano-2025-04-14",
     specification_format: [],
     specification_level: [],
     stakeholder: [],
@@ -226,6 +226,9 @@ export default function SynthlineApp() {
 
   // Fetch prompt preview when form data changes
   useEffect(() => {
+    setIsPromptOptimized(false);
+    setOptimizedAtomicPrompts([]);
+    
     const missingRequiredFields = REQUIRED_FIELDS.filter(field => !hasValidValue(field));
     
     if (missingRequiredFields.length === 0) {

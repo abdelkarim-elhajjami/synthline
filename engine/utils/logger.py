@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 class Logger:
     """Logger for Synthline."""
-    def __init__(self, base_dir: str = "logs", debug_mode: bool = False):
+    def __init__(self, base_dir: str = "logs", debug_mode: bool = True):
         """Initialize the logger."""
         
         self.log_dir = Path(base_dir)

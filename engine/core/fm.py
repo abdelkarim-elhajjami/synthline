@@ -60,7 +60,7 @@ class FM:
             'generator': Feature('Generator', 'group', subfeatures={
                 'llm': Feature('LLM', 'select', [
                     'deepseek-chat', 
-                    'gpt-4o',
+                    'gpt-4.1-nano-2025-04-14',
                     'ollama/mistral-small3.1'
                 ]),
                 'temperature': Feature('Temperature', 'input'),

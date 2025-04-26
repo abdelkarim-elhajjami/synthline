@@ -54,9 +54,9 @@ class LLMClient:
                 )
             return self._deepseek_client
             
-        elif model == 'gpt-4o':
+        elif model == 'gpt-4.1-nano-2025-04-14':
             if not self._openai_key:
-                error_msg = "OpenAI API key is missing. Cannot use gpt-4o model."
+                error_msg = "OpenAI API key is missing. Cannot use gpt-4.1-nano-2025-04-14 model."
                 self._logger.log_error(error_msg, "llm", {"model": model})
                 raise ValueError(error_msg)
                 
