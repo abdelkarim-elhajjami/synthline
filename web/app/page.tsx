@@ -222,7 +222,15 @@ export default function SynthlineApp() {
     if (Array.isArray(value)) return value.length > 0;
     if (typeof value === 'string') return value.trim() !== '';
     return value !== undefined && value !== null;
-  }, [formData]);
+  }, [
+    formData.label, 
+    formData.label_definition, 
+    formData.domain, 
+    formData.language, 
+    formData.specification_format, 
+    formData.specification_level, 
+    formData.stakeholder
+  ]);
 
   // Fetch prompt preview when form data changes
   useEffect(() => {
@@ -260,7 +268,19 @@ export default function SynthlineApp() {
       setCurrentPrompt("");
       setAtomicPrompts([]);
     }
-  }, [formData, hasValidValue]);
+  }, [
+    formData.label, 
+    formData.label_definition, 
+    formData.domain, 
+    formData.language, 
+    formData.specification_format, 
+    formData.specification_level, 
+    formData.stakeholder, 
+    formData.samples_per_prompt, 
+    formData.prompt_approach, 
+    formData.llm, 
+    hasValidValue
+  ]);
 
   // Form validation
   const validateForm = (): string => {
