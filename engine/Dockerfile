@@ -45,8 +45,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Create non-root user and necessary directories
 RUN useradd -m -s /bin/bash appuser \
-    && mkdir -p /engine/logs /engine/output \
-    && chown -R appuser:appuser /engine
+    && mkdir -p /engine/logs /engine/output /home/appuser/.cache/huggingface \
+    && chown -R appuser:appuser /engine /home/appuser
 
 # Copy application code
 COPY . .

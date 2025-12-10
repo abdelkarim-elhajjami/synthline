@@ -61,7 +61,7 @@ class FM:
                 'llm': Feature('LLM', 'select', [
                     'deepseek-chat', 
                     'gpt-4.1-nano-2025-04-14',
-                    'ollama/mistral-small3.1'
+                    'ollama/ministral-3:14b'
                 ]),
                 'temperature': Feature('Temperature', 'input'),
                 'top_p': Feature('Top P', 'input'),

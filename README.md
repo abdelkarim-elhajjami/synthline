@@ -37,6 +37,9 @@ To use PACE:
 - API Keys:
   - [OpenAI API Key](https://platform.openai.com/) (for gpt-4.1-nano-2025-04-14)
   - [DeepSeek API Key](https://www.deepseek.com/) (for DeepSeek models)
+- Local LLM (Optional):
+  - [Ollama](https://ollama.com/) installed and running
+  - Pull a model: `ollama pull ministral-3:14b`
 
 ### Installation
 
@@ -53,6 +56,9 @@ To use PACE:
    # engine/.env
    OPENAI_API_KEY=your_openai_api_key
    DEEPSEEK_API_KEY=your_deepseek_api_key
+   
+   # For Local LLM (Ollama)
+   OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
    ```
 
 3. Start the application using the provided script:
