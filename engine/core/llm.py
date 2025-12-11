@@ -2,6 +2,7 @@
 Client for interacting with LLM APIs.
 Supports OpenAI and DeepSeek APIs through a unified interface.
 """
+import asyncio
 from typing import Any, Dict, List, Optional
 from openai import AsyncClient
 from utils.logger import Logger
@@ -119,27 +120,23 @@ class LLMClient:
             temperature = float(features['temperature'])
             top_p = float(features['top_p'])
             
-            results = []
-            for prompt in prompts:
+            async def _try_completion(prompt: str) -> str:
                 try:
-                    result = await self.get_completion(
+                    return await self.get_completion(
                         prompt=prompt,
                         model=model,
                         temperature=temperature,
                         top_p=top_p
                     )
-                    results.append(result)
-                
                 except Exception as e:
-                    results.append(f"[ERROR: {str(e)[:100]}...]")
-                    
                     self._logger.log_error(
                         str(e), 
                         "llm_batch", 
                         {"model": model}
                     )
-                        
-            return results
+                    return f"[ERROR: {str(e)[:100]}...]"
+
+            return await asyncio.gather(*(_try_completion(p) for p in prompts))
             
         except Exception as e:
             self._logger.log_error(
