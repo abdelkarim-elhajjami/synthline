@@ -424,7 +424,7 @@ export default function SynthlineApp() {
 
   const handleDownload = () => {
     if (!results?.output_path) return;
-    window.open(`/api/download?path=${encodeURIComponent(results.output_path)}`, '_blank');
+    window.open(`/api/files/${encodeURIComponent(results.output_path)}`, '_blank');
   };
 
   // UI Components
