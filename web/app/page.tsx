@@ -121,7 +121,11 @@ export default function SynthlineApp() {
   // WebSocket handling
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/${connectionId}`;
+    // In development (localhost:3000), backend is on 8000.
+    // In production (Spaces), backend serves frontend on the same host/port.
+    const isDev = window.location.hostname === 'localhost' && window.location.port === '3000';
+    const wsHost = isDev ? 'localhost:8000' : window.location.host;
+    const wsUrl = `${protocol}//${wsHost}/ws/${connectionId}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {
