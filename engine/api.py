@@ -108,14 +108,14 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str) -> None:
         logger.log_error(error_message, "websocket", {"connection_id": connection_id})
         raise HTTPException(status_code=500, detail=error_message)
 
-@app.get("/features")
+@app.get("/api/features")
 async def get_features() -> Dict[str, Any]:
     """Return all available features and their metadata."""
     if not features:
         raise HTTPException(status_code=503, detail="Features not initialized")
     return features
 
-@app.post("/preview-prompt", response_model=PromptPreviewResponse)
+@app.post("/api/preview-prompt", response_model=PromptPreviewResponse)
 async def preview_prompt(request: PromptPreviewRequest) -> PromptPreviewResponse:
     """Preview atomic prompts based on the provided configuration."""
     if not promptline:
@@ -129,7 +129,7 @@ async def preview_prompt(request: PromptPreviewRequest) -> PromptPreviewResponse
     
     return PromptPreviewResponse(atomic_prompts=atomic_prompts)
 
-@app.post("/generate")
+@app.post("/api/generate")
 async def start_generation(request: GenerationRequest) -> Dict[str, Any]:
     """Generate samples based on the provided configuration."""
     if not generator or not output:
@@ -229,7 +229,7 @@ async def run_generation(
             except Exception as ws_e:
                 logger.log_error(f"Failed to send error: {str(ws_e)}", "websocket")
 
-@app.post("/optimize-prompt")
+@app.post("/api/optimize-prompt")
 async def start_optimize(request: OptimizePromptRequest) -> Dict[str, Any]:
     """Start optimizing a prompt using PACE."""
     if not promptline:
@@ -343,12 +343,12 @@ async def run_optimization(
             except Exception as ws_e:
                 logger.log_error(f"Failed to send error: {str(ws_e)}", "websocket")
 
-@app.get("/health")
+@app.get("/api/health")
 async def health_check() -> Dict[str, str]:
     """Health check endpoint for monitoring and container orchestration."""
     return {"status": "healthy", "service": "engine"}
 
-@app.get("/files/{file_path:path}")
+@app.get("/api/files/{file_path:path}")
 async def serve_file(file_path: str) -> FileResponse:
     """Serve any file from the output directory."""
     try:
