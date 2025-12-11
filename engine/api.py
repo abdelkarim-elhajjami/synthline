@@ -352,6 +352,10 @@ async def health_check() -> Dict[str, str]:
 async def serve_file(file_path: str) -> FileResponse:
     """Serve any file from the output directory."""
     try:
+        # Strip 'output/' prefix if present since OUTPUT_DIR already points to 'output'
+        if file_path.startswith("output/"):
+            file_path = file_path[7:]  # Remove 'output/' prefix
+        
         normalized_path = os.path.normpath(file_path)
         if normalized_path.startswith("..") or normalized_path.startswith("/"):
             raise HTTPException(status_code=403, detail="Invalid file path")
