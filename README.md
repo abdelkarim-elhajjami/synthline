@@ -1,3 +1,12 @@
+---
+title: Synthline
+emoji: 🚀
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # Synthline
 
 Synthline is a tool for generating high-quality synthetic data for requirements engineering. It leverages large language models (LLMs) to create diverse, customizable requirement samples according to specified attributes.
