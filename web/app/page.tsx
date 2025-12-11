@@ -117,6 +117,7 @@ export default function SynthlineApp() {
   const [atomicPrompts, setAtomicPrompts] = useState<AtomicPrompt[]>([]);
   const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
   const [optimizedAtomicPrompts, setOptimizedAtomicPrompts] = useState<AtomicPrompt[]>([]);
+  const [wsReady, setWsReady] = useState(false);
 
   // WebSocket handling
   useEffect(() => {
@@ -127,6 +128,14 @@ export default function SynthlineApp() {
     const wsHost = isDev ? 'localhost:8000' : window.location.host;
     const wsUrl = `${protocol}//${wsHost}/ws/${connectionId}`;
     const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      setWsReady(true);
+    };
+
+    ws.onclose = () => {
+      setWsReady(false);
+    };
 
     ws.onmessage = (event) => {
       try {
@@ -217,7 +226,10 @@ export default function SynthlineApp() {
       }
     };
 
-    return () => ws.close();
+    return () => {
+      setWsReady(false);
+      ws.close();
+    };
   }, [connectionId]);
 
   // Check if a field has valid content
@@ -313,6 +325,11 @@ export default function SynthlineApp() {
       return;
     }
 
+    if (!wsReady) {
+      setError("Connecting to server, please wait...");
+      return;
+    }
+
     setIsOptimizingPrompt(true);
     setResults(null);
     setError("");
@@ -347,6 +364,11 @@ export default function SynthlineApp() {
     const errorMessage = validateForm();
     if (errorMessage) {
       setError(errorMessage);
+      return;
+    }
+
+    if (!wsReady) {
+      setError("Connecting to server, please wait...");
       return;
     }
 
