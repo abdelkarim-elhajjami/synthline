@@ -1,0 +1,41 @@
+name: Deploy to Hugging Face Space
+
+on:
+  push:
+    branches:
+      - space
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          # Set this in your GitHub Secrets: HF_USERNAME / HF_SPACE_NAME
+          HF_USERNAME: ${{ secrets.HF_USERNAME }} 
+          HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "HF_TOKEN secret is missing!"
+            exit 1
+          fi
+          
+          if [ -z "$HF_USERNAME" ] || [ -z "$HF_SPACE_NAME" ]; then
+            echo "HF_USERNAME or HF_SPACE_NAME secrets are missing!"
+            exit 1
+          fi
+
+          echo "Pushing to Hugging Face Space: $HF_USERNAME/$HF_SPACE_NAME"
+          
+          git remote add space https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$HF_SPACE_NAME
+          
+          # Force push the current branch to the 'main' branch of the Space
+          git push -f space HEAD:main

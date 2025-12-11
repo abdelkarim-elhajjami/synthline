@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Optional
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from core.fm import FM
 from core.generator import Generator
@@ -371,3 +372,8 @@ async def serve_file(file_path: str) -> FileResponse:
         error_message = f"Error serving file: {str(e)}"
         logger.log_error(error_message, "file_serve", {"file_path": file_path})
         raise HTTPException(status_code=500, detail=error_message)
+
+# Mount static files (Frontend)
+# This must be placed after all API routes
+if os.path.exists("static"):
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")
