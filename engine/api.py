@@ -190,11 +190,10 @@ async def run_generation(
             progress_callback=progress_callback
         )
         
-        # Save results to file
-        output_path = output.save(
+        # Process results in memory (stateless)
+        output_data = output.process(
             samples=samples, 
-            format=features['output_format'], 
-            features=features
+            format=features['output_format']
         )
         
         # Send results to client via WebSocket
@@ -204,7 +203,8 @@ async def run_generation(
                 await websocket.send_json({
                     "type": "generation_complete",
                     "samples": samples,
-                    "output_path": str(output_path),
+                    "output_content": output_data, # Send content directly for download
+                    "output_format": features['output_format'].lower(),
                     "fewer_samples_received": generator._fewer_samples_received
                 })
                 

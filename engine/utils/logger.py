@@ -13,7 +13,7 @@ class Logger:
     Logs to stdout in structured JSON format.
     Controlled by DEBUG_LOGGING environment variable.
     """
-    def __init__(self, base_dir: str = "", debug_mode: bool = False):
+    def __init__(self, base_dir: str = "", debug_mode: bool = True):
         """
         Initialize the logger.
         base_dir is ignored (kept for compatibility).
