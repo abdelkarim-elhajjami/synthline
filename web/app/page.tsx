@@ -43,6 +43,8 @@ interface Sample {
 interface Results {
   samples: Sample[];
   output_path: string;
+  output_content: string;
+  output_format: string;
   fewer_samples_received?: boolean;
 }
 
@@ -201,6 +203,8 @@ export default function SynthlineApp() {
             setProgress(100);
             setResults({
               samples: data.samples,
+              output_content: data.output_content,
+              output_format: data.output_format,
               output_path: data.output_path,
               fewer_samples_received: data.fewer_samples_received
             });
