@@ -427,8 +427,19 @@ export default function SynthlineApp() {
   };
 
   const handleDownload = () => {
-    if (!results?.output_path) return;
-    window.open(`/api/files/${encodeURIComponent(results.output_path)}`, '_blank');
+    if (results?.output_path) {
+      window.open(`/api/files/${encodeURIComponent(results.output_path)}`, '_blank');
+    } else if (results?.output_content) {
+      const blob = new Blob([results.output_content], { type: results.output_format === 'json' ? 'application/json' : 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `synthline_output.${results.output_format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   // UI Components
@@ -965,7 +976,9 @@ export default function SynthlineApp() {
                   <div className="flex justify-between items-center mb-4">
                     <div>
                       <p className="text-white">{status}</p>
-                      <p className="text-zinc-400 text-sm">Output saved to: {results.output_path}</p>
+                      {results.output_path && (
+                        <p className="text-zinc-400 text-sm">Output saved to: {results.output_path}</p>
+                      )}
                     </div>
                     <Button
                       variant="ghost"
