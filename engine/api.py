@@ -82,7 +82,7 @@ async def startup_event() -> None:
             ollama_base_url=ollama_base_url
         )
         promptline = Promptline(llm_client=llm_client, logger=logger)
-        output = Output(logger=logger, output_dir=OUTPUT_DIR)
+        output = Output(logger=logger)
         generator = Generator(llm=llm_client, promptline=promptline, logger=logger)
         system_ctx = SystemContext()
         print("Synthline API initialized successfully")
