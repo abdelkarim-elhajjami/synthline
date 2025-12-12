@@ -7,7 +7,7 @@ import asyncio
 from typing import Dict, List, Any, Optional
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from core.fm import FM
@@ -20,8 +20,6 @@ from utils.ctx import SystemContext
 
 API_TITLE = "Synthline API"
 ALLOWED_ORIGINS = ["http://localhost:3000", "http://web:3000"]
-LOGS_DIR = "logs"
-OUTPUT_DIR = "output"
 
 # Define models
 class GenerationRequest(BaseModel):
@@ -73,7 +71,7 @@ async def startup_event() -> None:
         print("Warning: No DeepSeek or OpenAI API keys found. Only local models will be available unless keys are provided.")
     
     try:
-        logger = Logger(base_dir=LOGS_DIR)
+        logger = Logger()
         features = FM().features
         llm_client = LLMClient(
             logger=logger, 
@@ -89,7 +87,8 @@ async def startup_event() -> None:
     except Exception as e:
         error_msg = f"Error during startup: {e}"
         print(error_msg)
-        logger.log_error(error_msg, "startup")
+        if logger:
+            logger.log_error(error_msg, "startup")
         raise HTTPException(status_code=500, detail=error_msg)
 
 @app.websocket("/ws/{connection_id}")
@@ -348,34 +347,10 @@ async def health_check() -> Dict[str, str]:
     """Health check endpoint for monitoring and container orchestration."""
     return {"status": "healthy", "service": "engine"}
 
-@app.get("/api/files/{file_path:path}")
-async def serve_file(file_path: str) -> FileResponse:
-    """Serve any file from the output directory."""
-    try:
-        # Strip 'output/' prefix if present since OUTPUT_DIR already points to 'output'
-        if file_path.startswith("output/"):
-            file_path = file_path[7:]  # Remove 'output/' prefix
-        
-        normalized_path = os.path.normpath(file_path)
-        if normalized_path.startswith("..") or normalized_path.startswith("/"):
-            raise HTTPException(status_code=403, detail="Invalid file path")
-            
-        full_path = os.path.join(OUTPUT_DIR, normalized_path)
-        
-        if not os.path.exists(full_path) or not os.path.isfile(full_path):
-            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
-        
-        return FileResponse(
-            path=full_path,
-            filename=os.path.basename(file_path),
-            media_type='application/octet-stream'
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        error_message = f"Error serving file: {str(e)}"
-        logger.log_error(error_message, "file_serve", {"file_path": file_path})
-        raise HTTPException(status_code=500, detail=error_message)
+# Mount static files (Frontend)
+# This must be placed after all API routes
+if os.path.exists("static"):
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 # Mount static files (Frontend)
 # This must be placed after all API routes
