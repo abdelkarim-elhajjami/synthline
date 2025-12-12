@@ -2,109 +2,95 @@
 Logging system for Synthline.
 """
 import json
-from pathlib import Path
+import os
+import random
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 class Logger:
-    """Logger for Synthline."""
-    def __init__(self, base_dir: str = "logs", debug_mode: bool = True):
-        """Initialize the logger."""
+    """
+    Stateless logger for Synthline.
+    Logs to stdout in structured JSON format.
+    Controlled by DEBUG_LOGGING environment variable.
+    """
+    def __init__(self, base_dir: str = "", debug_mode: bool = False):
+        """
+        Initialize the logger.
+        base_dir is ignored (kept for compatibility).
+        debug_mode is read from env var 'DEBUG_LOGGING' if not provided explicitly.
+        """
+        self.debug_mode = debug_mode or (os.environ.get("DEBUG_LOGGING", "false").lower() == "true")
+        self.conversation_sample_rate = 0.1 # Log 10% of conversations in debug mode
         
-        self.log_dir = Path(base_dir)
-        self.conversation_dir = self.log_dir / "conversations"
-        self.error_dir = self.log_dir / "errors"
-        self.pace_dir = self.log_dir / "pace"
-        self.debug_mode = debug_mode
-    
     def log_error(self, 
                  error_msg: str, 
                  component: str, 
-                 context: Optional[Dict[str, Any]] = None) -> Path:
-        """Log an error from any component."""
-        
-        self.log_dir.mkdir(exist_ok=True, parents=True)
-        self.error_dir.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        log_file = self.error_dir / f"{component}_error_{timestamp}.json"
-        
-        log_data = {
-            "timestamp": timestamp,
-            "component": component,
-            "error": error_msg
-        }
-        
-        if context:
-            log_data["context"] = {k: str(v) for k, v in context.items()}
-        
-        self._write_json(log_file, log_data)
-        return log_file
+                 context: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Log an error to stdout.
+        Errors are ALWAYS logged, regardless of debug mode.
+        """
+        self._log("ERROR", component, {
+            "error": error_msg,
+            "context": context
+        })
     
     def log_prompt(self, 
                   prompt: str,
                   score: float,
                   event: str,
-                  config: Dict[str, Any]) -> Path:
-        """Log prompt optimization events."""
-        
-        self.log_dir.mkdir(exist_ok=True, parents=True)
-        self.pace_dir.mkdir(exist_ok=True)
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        
-        config_str = f"{config['specification_format']}_{config['specification_level']}_{config['stakeholder']}"
-        config_str = config_str.replace(' ', '_').replace(',', '-')
-        
-        log_type = "update" if event == "NEW BEST PROMPT" else "final"
-        log_file = self.pace_dir / f"{log_type}_{config_str}_{timestamp}.json"
-        
-        log_data = {
-            "timestamp": timestamp,
+                  config: Dict[str, Any]) -> None:
+        """
+        Log prompt optimization events.
+        Only logs 'NEW BEST PROMPT' or 'FINAL' events to avoid noise.
+        Only active in DEBUG_MODE.
+        """
+        if not self.debug_mode:
+            return
+            
+        if event not in ["NEW BEST PROMPT", "FINAL OPTIMIZED PROMPT"]:
+            return
+
+        self._log("INFO", "PACE", {
             "event": event,
-            "prompt": prompt,
             "score": score,
+            "prompt_preview": prompt[:100] + "..." if len(prompt) > 100 else prompt,
             "config": {
                 k: v for k, v in config.items()
-                if k in ['label', 'label_definition', 'specification_format', 
-                        'specification_level', 'stakeholder', 'domain', 'language']
+                if k in ['label', 'specification_format', 'stakeholder']
             }
-        }
-        
-        self._write_json(log_file, log_data)
-        return log_file
+        })
     
     def log_conversation(self, 
                         prompt: str, 
                         completion: str, 
                         model: str, 
                         temperature: float, 
-                        top_p: float) -> Optional[Path]:
-        """Log an LLM conversation (prompt and completion)."""
-        
+                        top_p: float) -> None:
+        """
+        Log an LLM conversation.
+        Only active in DEBUG_MODE.
+        Uses sampling to log only a fraction of conversations to avoid spam.
+        """
         if not self.debug_mode:
-            return None
+            return
+
+        if random.random() > self.conversation_sample_rate:
+            return
             
-        self.log_dir.mkdir(exist_ok=True, parents=True)
-        self.conversation_dir.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        log_file = self.conversation_dir / f"conversation_{timestamp}.json"
-        
-        log_data = {
-            "timestamp": timestamp,
+        self._log("DEBUG", "LLM", {
             "model": model,
             "temperature": temperature,
-            "top_p": top_p,
             "prompt": prompt,
             "completion": completion
-        }
-        
-        self._write_json(log_file, log_data)
-        return log_file
+        })
 
-    def _write_json(self, file_path: Path, data: Dict[str, Any]) -> None:
-        """Write JSON data to a file with error handling."""
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"Error writing log to {file_path}: {e}") 
+    def _log(self, level: str, component: str, data: Dict[str, Any]) -> None:
+        """Write a structured JSON log line to stdout."""
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "level": level,
+            "component": component,
+            **data
+        }
+        print(json.dumps(log_entry, ensure_ascii=False))
