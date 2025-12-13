@@ -22,6 +22,18 @@ class Logger:
         self.debug_mode = debug_mode or (os.environ.get("DEBUG_LOGGING", "false").lower() == "true")
         self.conversation_sample_rate = 0.1 # Log 10% of conversations in debug mode
         
+    def log_info(self, 
+                 message: str, 
+                 component: str, 
+                 context: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Log information to stdout.
+        """
+        self._log("INFO", component, {
+            "message": message,
+            "context": context
+        })
+
     def log_error(self, 
                  error_msg: str, 
                  component: str, 

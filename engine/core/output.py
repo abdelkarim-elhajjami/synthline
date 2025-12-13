@@ -2,7 +2,6 @@
 Output handler for saving generated data.
 Supports both JSON and CSV output formats.
 """
-from pathlib import Path
 from typing import Any, Dict, List
 import json
 import pandas as pd
@@ -36,7 +35,3 @@ class Output:
         except Exception as e:
             self._logger.log_error(f"Error processing output: {e}", "output")
             raise
-    
-    def _save_csv(self, samples: List[Dict[str, Any]], path: Path) -> None:
-        """Save data in CSV format."""
-        pd.DataFrame(samples).to_csv(path, index=False, encoding='utf-8')

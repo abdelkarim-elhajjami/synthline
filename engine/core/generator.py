@@ -64,18 +64,14 @@ class Generator:
                     config[key] = value
         
         n_configs = len(atomic_configs)
-        
-        # Calculate samples per configuration
-        base_count = total_samples // n_configs
-        remainder = total_samples % n_configs
+        sample_counts = self._distribute_samples(total_samples, n_configs)
         
         # Track progress across all configurations
         progress_total = 0
         
         # Generate samples for each atomic configuration
         for i, config in enumerate(atomic_configs):
-            # Calculate samples for this config (distribute remainder)
-            samples_for_config = base_count + (1 if i < remainder else 0)
+            samples_for_config = sample_counts[i]
             
             if samples_for_config <= 0:
                 continue
@@ -176,3 +172,14 @@ class Generator:
             "specification_format": atomic_config['specification_format'],
             "specification_level": atomic_config['specification_level']
         }
+
+    def _distribute_samples(self, total_samples: int, n_configs: int) -> List[int]:
+        """Distribute total samples as evenly as possible among configurations."""
+        if n_configs == 0:
+            return []
+        
+        base_count = total_samples // n_configs
+        remainder = total_samples % n_configs
+        
+        return [base_count + (1 if i < remainder else 0) for i in range(n_configs)]
+        
