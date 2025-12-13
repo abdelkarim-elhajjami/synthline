@@ -6,10 +6,15 @@ import { Results } from "@/app/types";
 interface ResultsDisplayProps {
     results: Results;
     status: string;
+    downloadFilename?: string;
 }
 
-export function ResultsDisplay({ results, status }: ResultsDisplayProps) {
+export function ResultsDisplay({ results, status, downloadFilename }: ResultsDisplayProps) {
     const handleDownload = () => {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const defaultName = `synthline_output_${timestamp}.${results.output_format}`;
+        const filename = downloadFilename ? `${downloadFilename}.${results.output_format}` : defaultName;
+
         if (results?.output_path) {
             window.open(`/api/files/${encodeURIComponent(results.output_path)}`, '_blank');
         } else if (results?.output_content) {
@@ -17,7 +22,7 @@ export function ResultsDisplay({ results, status }: ResultsDisplayProps) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `synthline_output.${results.output_format}`;
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

@@ -17,7 +17,8 @@ function SynthlineContent() {
     progress,
     isGenerating,
     handleGenerate,
-    isOptimizingPrompt
+    isOptimizingPrompt,
+    formData
   } = useSynthline();
 
   return (
@@ -75,7 +76,13 @@ function SynthlineContent() {
           {/* Results */}
           {results && (
             <div className="animate-in slide-in-from-bottom-10 fade-in duration-500">
-              <ResultsDisplay results={results} status={status} />
+              <ResultsDisplay
+                results={results}
+                status={status}
+                downloadFilename={
+                  `synthline_${(formData.label || 'output').replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${new Date().toISOString().split('T')[0]}`
+                }
+              />
             </div>
           )}
         </div>
