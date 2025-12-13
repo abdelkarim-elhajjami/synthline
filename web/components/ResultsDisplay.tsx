@@ -12,7 +12,7 @@ interface ResultsDisplayProps {
 export function ResultsDisplay({ results, status, downloadFilename }: ResultsDisplayProps) {
     const handleDownload = () => {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const defaultName = `synthline_output_${timestamp}.${results.output_format}`;
+        const defaultName = `output_${timestamp}.${results.output_format}`;
         const filename = downloadFilename ? `${downloadFilename}.${results.output_format}` : defaultName;
 
         if (results?.output_path) {

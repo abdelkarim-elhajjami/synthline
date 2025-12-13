@@ -80,7 +80,7 @@ function SynthlineContent() {
                 results={results}
                 status={status}
                 downloadFilename={
-                  `synthline_${(formData.label || 'output').replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${new Date().toISOString().split('T')[0]}`
+                  `${(formData.label || 'output').trim().replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_${formData.total_samples || 0}_${new Date().toISOString().split('T')[0]}`
                 }
               />
             </div>
