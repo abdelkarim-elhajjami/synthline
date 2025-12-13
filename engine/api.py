@@ -56,8 +56,8 @@ app.include_router(optimization.router, prefix="/api", tags=["optimization"])
 async def websocket_endpoint(websocket: WebSocket, connection_id: str) -> None:
     """Handle WebSocket connections for real-time progress updates."""
     try:
-        await websocket.accept()
         dependencies.system_ctx.add_connection(connection_id, websocket)
+        await websocket.accept()
         try:
             while True:
                 await websocket.receive_text()
