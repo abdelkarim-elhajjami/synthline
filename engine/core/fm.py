@@ -2,7 +2,7 @@
 Feature Manager for Synthline.
 Defines and manages configurable features for data generation.
 """
-from typing import Dict, List, Optional
+from typing import Dict, List
 from pydantic import BaseModel
 
 class Feature(BaseModel):

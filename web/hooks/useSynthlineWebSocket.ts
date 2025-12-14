@@ -32,8 +32,7 @@ export function useSynthlineWebSocket({ formData, hasValidValue, validateForm }:
     // WebSocket connection
     useEffect(() => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const isDev = window.location.hostname === 'localhost' && window.location.port === '3000';
-        const wsHost = isDev ? 'localhost:8000' : window.location.host;
+        const wsHost = window.location.host;
         const wsUrl = `${protocol}//${wsHost}/ws/${connectionId}`;
         const ws = new WebSocket(wsUrl);
 

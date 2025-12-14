@@ -1,4 +1,3 @@
-from functools import lru_cache
 from typing import Optional
 
 from core.fm import FM
@@ -76,7 +75,6 @@ class Dependencies:
             self._system_ctx = SystemContext()
         return self._system_ctx
 
-# Global dependencies instance
 dependencies = Dependencies()
 
 def get_dependencies() -> Dependencies:

@@ -13,10 +13,9 @@ class Logger:
     Logs to stdout in structured JSON format.
     Controlled by DEBUG_LOGGING environment variable.
     """
-    def __init__(self, base_dir: str = "", debug_mode: bool = True):
+    def __init__(self, debug_mode: bool = True):
         """
         Initialize the logger.
-        base_dir is ignored (kept for compatibility).
         debug_mode is read from env var 'DEBUG_LOGGING' if not provided explicitly.
         """
         self.debug_mode = debug_mode or (os.environ.get("DEBUG_LOGGING", "false").lower() == "true")
