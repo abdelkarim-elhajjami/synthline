@@ -27,17 +27,11 @@ class Generator:
     async def generate(
         self,
         features: Dict[str, Any],
-        progress_callback: ProgressCallback = None
+        progress_callback: ProgressCallback = None,
+        api_keys: Dict[str, str] = None
     ) -> List[Dict[str, Any]]:
         """
         Generate synthetic data based on feature configuration.
-        
-        Args:
-            features: Dictionary of feature settings
-            progress_callback: Optional callback for reporting progress
-            
-        Returns:
-            List of generated samples as dictionaries
         """
         all_samples = []
         self._fewer_samples_received = False
@@ -86,7 +80,8 @@ class Generator:
                 new_samples, received_count = await self._generate_samples(
                     atomic_config=config,
                     samples_needed=samples_needed,
-                    samples_per_prompt=request_count
+                    samples_per_prompt=request_count,
+                    api_keys=api_keys
                 )
                 
                 # Check if we received fewer samples than requested (token limit)
@@ -124,18 +119,11 @@ class Generator:
         self, 
         atomic_config: Dict[str, Any],
         samples_needed: int, 
-        samples_per_prompt: int
+        samples_per_prompt: int,
+        api_keys: Dict[str, str] = None
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Generate samples for a specific atomic configuration.
-        
-        Args:
-            atomic_config: Atomic configuration dictionary
-            samples_needed: Number of samples needed
-            samples_per_prompt: Number of samples to request per prompt
-            
-        Returns:
-            Tuple of (list of sample dictionaries, count of samples received)
         """
         new_samples = []
         
@@ -146,7 +134,11 @@ class Generator:
             prompt = self._promptline.build(atomic_config)
         
         try:
-            completion_list = await self._llm.get_batch_completions([prompt], atomic_config)
+            completion_list = await self._llm.get_batch_completions(
+                prompts=[prompt], 
+                features=atomic_config,
+                api_keys=api_keys
+            )
             completion = completion_list[0]
             
             sample_texts = parse_completion(completion, samples_per_prompt)

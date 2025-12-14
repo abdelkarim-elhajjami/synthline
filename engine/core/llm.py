@@ -1,35 +1,45 @@
 """
 Client for interacting with LLM APIs.
-Supports OpenAI and DeepSeek APIs through a unified interface.
+Supports OpenAI, DeepSeek, and Hugging Face Inference APIs.
 """
 import asyncio
 from typing import Any, Dict, List, Optional
 from openai import AsyncClient
+from huggingface_hub import AsyncInferenceClient
 from utils.logger import Logger
 
 class LLMClient:
-    """Client for OpenAI, DeepSeek, and Ollama APIs."""
+    """Client for OpenAI, DeepSeek, Ollama, and Hugging Face APIs."""
     
     def __init__(self, 
                  logger: Logger,
                  deepseek_key: Optional[str] = None, 
                  openai_key: Optional[str] = None,
                  ollama_base_url: Optional[str] = None):
-        """Initialize the LLM client with API keys and base URLs."""
-        self._deepseek_key = deepseek_key
-        self._openai_key = openai_key
+        """Initialize the LLM client with default server-side API keys."""
+        self._default_deepseek_key = deepseek_key
+        self._default_openai_key = openai_key
         self._ollama_base_url = ollama_base_url
-        self._deepseek_client = None
-        self._openai_client = None
-        self._ollama_client = None
-        self._logger = logger
         
+        # Clients are cached but keys might change per request
+        # For OpenAI/DeepSeek, we might need new client instances if key changes
+        # Optimized: only cache the default clients
+        self._default_deepseek_client = None
+        self._default_openai_client = None
+        self._ollama_client = None
+        
+        self._logger = logger
         self._request_timeout = 120
         self._max_retries = 3
 
-    def _get_client(self, model: str) -> AsyncClient:
-        """Return the API client for the specified model."""
+    def _get_client(self, model: str, api_keys: Optional[Dict[str, str]] = None) -> Any:
+        """
+        Return the API client for the specified model and keys.
+        Prioritizes provided api_keys over defaults.
+        """
+        keys = api_keys or {}
         
+        # 1. Ollama (No Auth usually)
         if model.startswith('ollama/'):
             if not self._ollama_client:
                 self._ollama_client = AsyncClient(
@@ -40,57 +50,104 @@ class LLMClient:
                 )
             return self._ollama_client
             
+        # 2. DeepSeek
         elif model == 'deepseek-chat':
-            if not self._deepseek_key:
+            key = keys.get('deepseek') or self._default_deepseek_key
+            if not key:
                 error_msg = "DeepSeek API key is missing. Cannot use deepseek-chat model."
                 self._logger.log_error(error_msg, "llm", {"model": model})
                 raise ValueError(error_msg)
-                
-            if not self._deepseek_client:
-                self._deepseek_client = AsyncClient(
-                    api_key=self._deepseek_key,
+            
+            # If using custom key, create ephemeral client
+            if key != self._default_deepseek_key:
+                return AsyncClient(
+                    api_key=key,
                     base_url="https://api.deepseek.com",
                     timeout=self._request_timeout,
                     max_retries=self._max_retries
                 )
-            return self._deepseek_client
             
+            # Use default client
+            if not self._default_deepseek_client:
+                self._default_deepseek_client = AsyncClient(
+                    api_key=self._default_deepseek_key,
+                    base_url="https://api.deepseek.com",
+                    timeout=self._request_timeout,
+                    max_retries=self._max_retries
+                )
+            return self._default_deepseek_client
+            
+        # 3. OpenAI
         elif model == 'gpt-4.1-nano-2025-04-14':
-            if not self._openai_key:
+            key = keys.get('openai') or self._default_openai_key
+            if not key:
                 error_msg = "OpenAI API key is missing. Cannot use gpt-4.1-nano-2025-04-14 model."
                 self._logger.log_error(error_msg, "llm", {"model": model})
                 raise ValueError(error_msg)
                 
-            if not self._openai_client:
-                self._openai_client = AsyncClient(
-                    api_key=self._openai_key,
+            if key != self._default_openai_key:
+                return AsyncClient(
+                    api_key=key,
                     timeout=self._request_timeout,
                     max_retries=self._max_retries
                 )
-            return self._openai_client
+                
+            if not self._default_openai_client:
+                self._default_openai_client = AsyncClient(
+                    api_key=self._default_openai_key,
+                    timeout=self._request_timeout,
+                    max_retries=self._max_retries
+                )
+            return self._default_openai_client
             
+        # 4. Hugging Face Inference
         else:
-            raise ValueError(f"Unsupported model: {model}")
+            # Assume any other model is HF
+            hf_token = keys.get('huggingface')
+            # Note: HF inference can work anonymously for some models, but better with token.
+            # If no token provided, try without one or raise error if needed. 
+            # Ideally we have a server-side default HF token too? 
+            # For now, let's assume anonymous if no token, or user provided.
+            
+            return AsyncInferenceClient(
+                model=model,
+                token=hf_token
+            )
 
     async def get_completion(self, 
                              prompt: str,
                              model: str,
                              temperature: float,
-                             top_p: float) -> str:
+                             top_p: float,
+                             api_keys: Optional[Dict[str, str]] = None) -> str:
         """Generate a completion for a given prompt using the specified LLM."""
         
-        client = self._get_client(model)
+        client = self._get_client(model, api_keys)
+        # Handle Ollama/OpenAI/DeepSeek naming conventions
         model_name = model.split('/')[-1] if model.startswith('ollama/') else model
         
         try:
-            completion = await client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                top_p=top_p
-            )
+            # Handle Hugging Face Inference
+            if isinstance(client, AsyncInferenceClient):
+                # HF Inference API logic
+                response = await client.text_generation(
+                    prompt,
+                    max_new_tokens=1024, # Reasonable default
+                    temperature=temperature,
+                    top_p=top_p,
+                    return_full_text=False
+                )
+                completion_text = response
             
-            completion_text = completion.choices[0].message.content
+            # Handle OpenAI/Compatiable clients
+            else:
+                completion = await client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    top_p=top_p
+                )
+                completion_text = completion.choices[0].message.content
             
             self._logger.log_conversation(
                 prompt=prompt,
@@ -113,7 +170,8 @@ class LLMClient:
 
     async def get_batch_completions(self,
                                     prompts: List[str],
-                                    features: Dict[str, Any]) -> List[str]:
+                                    features: Dict[str, Any],
+                                    api_keys: Optional[Dict[str, str]] = None) -> List[str]:
         """Generate completions for a batch of prompts using the specified LLM."""
         try:
             model = features['llm']
@@ -126,7 +184,8 @@ class LLMClient:
                         prompt=prompt,
                         model=model,
                         temperature=temperature,
-                        top_p=top_p
+                        top_p=top_p,
+                        api_keys=api_keys
                     )
                 except Exception as e:
                     self._logger.log_error(

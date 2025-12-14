@@ -41,7 +41,8 @@ async def start_generation(
         run_generation(
             features,
             request.connection_id,
-            deps
+            deps,
+            request.api_keys
         )
     )
     
@@ -53,7 +54,8 @@ async def start_generation(
 async def run_generation(
     features: Dict[str, Any],
     connection_id: str,
-    deps: Dependencies
+    deps: Dependencies,
+    api_keys: Dict[str, str] = None
 ) -> None:
     """Run generation in the background and send results via WebSocket."""
     websocket = deps.system_ctx.get_connection(connection_id)
@@ -78,7 +80,8 @@ async def run_generation(
         # Generate samples
         samples = await deps.generator.generate(
             features=features,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            api_keys=api_keys
         )
         
         # Process results in memory (stateless)

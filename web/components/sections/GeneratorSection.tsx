@@ -11,6 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
 import { LLM_OPTIONS } from "@/app/constants";
 import { PromptPreview } from "@/components/PromptPreview";
+import { ApiKeySettings } from "@/components/ApiKeySettings";
 import { useSynthline } from '@/context/SynthlineContext';
 
 export function GeneratorSection() {
@@ -32,7 +33,10 @@ export function GeneratorSection() {
 
     return (
         <section className="space-y-4">
-            <h2 className="text-2xl font-medium text-[#8A2BE2]">Generator</h2>
+            <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-medium text-[#8A2BE2]">Generator</h2>
+                <ApiKeySettings />
+            </div>
             <Card className="bg-[#121212] border-[#1E1E1E] p-6 shadow-md">
                 <Label className="text-white mb-4 block text-base font-medium">LLM Settings</Label>
 

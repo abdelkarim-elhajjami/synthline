@@ -7,9 +7,10 @@ interface UseSynthlineWebSocketProps {
     formData: FormData;
     hasValidValue: (field: keyof FormData) => boolean;
     validateForm: () => string;
+    apiKeys?: Record<string, string>;
 }
 
-export function useSynthlineWebSocket({ formData, hasValidValue, validateForm }: UseSynthlineWebSocketProps) {
+export function useSynthlineWebSocket({ formData, hasValidValue, validateForm, apiKeys }: UseSynthlineWebSocketProps) {
     const [connectionId] = useState(() => uuidv4());
     const [wsReady, setWsReady] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -205,7 +206,8 @@ export function useSynthlineWebSocket({ formData, hasValidValue, validateForm }:
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     features: formData,
-                    connection_id: connectionId
+                    connection_id: connectionId,
+                    api_keys: apiKeys
                 })
             });
 
@@ -253,6 +255,11 @@ export function useSynthlineWebSocket({ formData, hasValidValue, validateForm }:
                 } else if (currentPrompt) {
                     (requestData.features as Record<string, unknown>).optimized_prompt = currentPrompt;
                 }
+            }
+
+            // Add API keys if present
+            if (apiKeys) {
+                (requestData as any).api_keys = apiKeys;
             }
 
             const response = await fetch('/api/generate', {

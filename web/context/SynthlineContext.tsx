@@ -30,6 +30,11 @@ interface SynthlineContextType {
     currentPromptIndex: number;
     setCurrentPromptIndex: (index: number) => void;
 
+
+    // API Keys State
+    apiKeys: Record<string, string>;
+    setApiKeys: (keys: Record<string, string>) => void;
+
     // Actions
     handleOptimizePrompt: () => Promise<void>;
     handleGenerate: () => Promise<void>;
@@ -39,11 +44,13 @@ const SynthlineContext = createContext<SynthlineContextType | undefined>(undefin
 
 export function SynthlineProvider({ children }: { children: ReactNode }) {
     const { formData, handleInputChange, hasValidValue, validateForm } = useSynthlineForm();
+    const [apiKeys, setApiKeys] = React.useState<Record<string, string>>({});
 
     const wsState = useSynthlineWebSocket({
         formData,
         hasValidValue,
-        validateForm
+        validateForm,
+        apiKeys // Pass apiKeys to the hook
     });
 
     const value = {
@@ -51,6 +58,8 @@ export function SynthlineProvider({ children }: { children: ReactNode }) {
         handleInputChange,
         hasValidValue,
         validateForm,
+        apiKeys,
+        setApiKeys,
         ...wsState
     };
 

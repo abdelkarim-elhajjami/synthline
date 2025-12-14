@@ -76,6 +76,8 @@ class FM:
                         options=[
                             'deepseek-chat', 
                             'gpt-4.1-nano-2025-04-14', 
+                            'mistralai/Mistral-7B-Instruct-v0.2',
+                            'google/gemma-7b',
                             'ollama/ministral-3:14b'
                         ]
                     ),

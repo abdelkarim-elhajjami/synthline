@@ -28,7 +28,8 @@ async def start_optimize(
         run_optimization(
             features,
             request.connection_id,
-            deps
+            deps,
+            request.api_keys
         )
     )
     
@@ -37,7 +38,8 @@ async def start_optimize(
 async def run_optimization(
     features: Dict[str, Any],
     connection_id: str,
-    deps: Dependencies
+    deps: Dependencies,
+    api_keys: Dict[str, str] = None
 ) -> None:
     """Run optimization in the background and send results via WebSocket."""
     websocket = deps.system_ctx.get_connection(connection_id)
@@ -77,7 +79,8 @@ async def run_optimization(
             atomic_configs=atomic_configs,
             features=features,
             progress_callback=progress_callback,
-            system_ctx=deps.system_ctx
+            system_ctx=deps.system_ctx,
+            api_keys=api_keys
         )
         
         websocket = deps.system_ctx.get_connection(connection_id)

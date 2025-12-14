@@ -34,7 +34,8 @@ class PACE:
         n_iterations: Optional[int] = None,
         n_actors: Optional[int] = None,
         n_candidates: Optional[int] = None,
-        system_ctx: Optional[SystemContext] = None
+        system_ctx: Optional[SystemContext] = None,
+        api_keys: Optional[Dict[str, str]] = None
     ) -> List[Tuple[str, float, Dict[str, Any]]]:
         """
         Optimize multiple prompts in parallel (one for each atomic configuration).
@@ -72,7 +73,8 @@ class PACE:
                     n_candidates=n_candidates,
                     system_ctx=system_ctx,
                     atomic_config_index=i,
-                    total_configs=total_configs
+                    total_configs=total_configs,
+                    api_keys=api_keys
                 )
             )
             tasks.append((task, atomic_config))
@@ -135,7 +137,8 @@ class PACE:
         n_candidates: Optional[int] = None,
         system_ctx: Optional[SystemContext] = None,
         atomic_config_index: Optional[int] = None,
-        total_configs: Optional[int] = None
+        total_configs: Optional[int] = None,
+        api_keys: Optional[Dict[str, str]] = None
     ) -> Tuple[str, float]:
         """Optimize a single atomic prompt using PACE."""        
         # Initialization:
@@ -152,10 +155,10 @@ class PACE:
                 
                 for _ in range(n_actors):
                     try:
-                        action = await self._run_actor(prompt=current_prompt, features=features)
+                        action = await self._run_actor(prompt=current_prompt, features=features, api_keys=api_keys)
                         all_actions.append(action)
                         
-                        critique = await self._run_critic(prompt=current_prompt, action=action, features=features)
+                        critique = await self._run_critic(prompt=current_prompt, action=action, features=features, api_keys=api_keys)
                         all_critiques.append(critique)
                         
                     except Exception as e:
@@ -168,12 +171,12 @@ class PACE:
                 for _ in range(n_candidates):
                     try:
                         # 3. Update the prompt based on critiques (generate one candidate)
-                        candidate_prompt = await self._update_prompt(current_prompt, all_critiques, features)
+                        candidate_prompt = await self._update_prompt(current_prompt, all_critiques, features, api_keys=api_keys)
                         
                         # 4. Evaluate each candidate prompt
                         new_actions = []
                         for _ in range(n_actors):
-                            action = await self._run_actor(prompt=candidate_prompt, features=features)
+                            action = await self._run_actor(prompt=candidate_prompt, features=features, api_keys=api_keys)
                             new_actions.append(action)
                         
                         candidate_score = self._evaluate_prompt(new_actions, features['samples_per_prompt'])
@@ -245,13 +248,15 @@ class PACE:
     async def _run_actor(
         self, 
         prompt: str, 
-        features: Dict[str, Any]
+        features: Dict[str, Any],
+        api_keys: Optional[Dict[str, str]] = None
     ) -> str:
         """Run the actor to generate synthetic samples based on the current prompt."""
         try:
             completions = await self._llm.get_batch_completions(
                 prompts=[prompt],
-                features=features
+                features=features,
+                api_keys=api_keys
             )
             return completions[0]
         
@@ -267,7 +272,8 @@ class PACE:
         self,
         prompt: str,
         action: str,
-        features: Dict[str, Any]
+        features: Dict[str, Any],
+        api_keys: Optional[Dict[str, str]] = None
     ) -> str:
         """Run the critic to provide a critique with suggestions for refining the prompt."""
 
@@ -309,7 +315,8 @@ Your task: Critique how the output fails to meet these expectations."""
         try:
             completions = await self._llm.get_batch_completions(
                 prompts=[critique_prompt],
-                features=critic_settings
+                features=critic_settings,
+                api_keys=api_keys
             )
             return completions[0] if completions else "[ERROR: No critique generated]"
 
@@ -321,7 +328,8 @@ Your task: Critique how the output fails to meet these expectations."""
         self,
         current_prompt: str,
         feedback_list: List[str],
-        atomic_config: Dict[str, Any]
+        atomic_config: Dict[str, Any],
+        api_keys: Optional[Dict[str, str]] = None
     ) -> str:
         """Update the prompt based on collected feedback, ensuring format instructions are preserved."""
 
@@ -344,7 +352,8 @@ Return only the new Instruction as plain text — no extra text, quotes, or form
         try:
             completions = await self._llm.get_batch_completions(
                 prompts=[update_prompt],
-                features=update_settings
+                features=update_settings,
+                api_keys=api_keys
             )
             return completions[0].strip() if completions and completions[0] else current_prompt
 

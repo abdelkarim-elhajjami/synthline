@@ -120,7 +120,8 @@ Include only the JSON array. No additional text.'''
         atomic_configs: List[Dict[str, Any]],
         features: Dict[str, Any],
         progress_callback: Optional[Callable[[float], Awaitable[None]]] = None,
-        system_ctx: Optional['SystemContext'] = None
+        system_ctx: Optional['SystemContext'] = None,
+        api_keys: Optional[Dict[str, str]] = None
     ) -> List[Tuple[str, float, Dict[str, Any]]]:
         """
         Optimize multiple prompts for different atomic configurations.
@@ -130,6 +131,7 @@ Include only the JSON array. No additional text.'''
             features: Base features dict
             progress_callback: Optional callback for reporting progress
             system_ctx: System context containing operational concerns
+            api_keys: Optional API keys to use
             
         Returns:
             List of (optimized_prompt, score, config) tuples
@@ -147,5 +149,6 @@ Include only the JSON array. No additional text.'''
             n_iterations=n_iterations,
             n_actors=n_actors,
             n_candidates=n_candidates,
-            system_ctx=system_ctx
+            system_ctx=system_ctx,
+            api_keys=api_keys
         )
