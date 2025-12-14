@@ -13,7 +13,7 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
-import { Settings, Key, ShieldCheck } from "lucide-react";
+import { Key, ShieldCheck } from "lucide-react";
 import { useSynthline } from '@/context/SynthlineContext';
 
 export function ApiKeySettings() {
@@ -40,12 +40,12 @@ export function ApiKeySettings() {
             <DialogTrigger asChild>
                 <Button
                     variant="outline"
-                    size="icon"
-                    className="bg-[#1A1A1A] border-[#2A2A2A] text-white hover:bg-[#2A2A2A] hover:text-[#8A2BE2]"
+                    className="bg-[#1A1A1A] border-[#2A2A2A] text-white hover:bg-[#2A2A2A] hover:text-[#8A2BE2] gap-2"
                     disabled={isGenerating || isOptimizingPrompt}
                     title="Configure API Keys"
                 >
-                    <Settings className="h-4 w-4" />
+                    <Key className="h-4 w-4" />
+                    <span className="hidden sm:inline">Configure API Keys</span>
                 </Button>
             </DialogTrigger>
             <DialogContent className="bg-[#121212] border-[#2A2A2A] text-white sm:max-w-[425px]">
@@ -72,32 +72,20 @@ export function ApiKeySettings() {
                             onChange={(e) => setLocalKeys({ ...localKeys, openai: e.target.value })}
                         />
                     </div>
+
                     <div className="space-y-2">
-                        <Label htmlFor="deepseek" className="text-right">
-                            DeepSeek API Key
+                        <Label htmlFor="openrouter" className="text-right">
+                            OpenRouter API Key
                         </Label>
                         <Input
-                            id="deepseek"
+                            id="openrouter"
                             type="password"
-                            placeholder="sk-..."
+                            placeholder="sk-or-..."
                             className="bg-[#1A1A1A] border-[#2A2A2A] text-white"
-                            value={localKeys.deepseek || ''}
-                            onChange={(e) => setLocalKeys({ ...localKeys, deepseek: e.target.value })}
+                            value={localKeys.openrouter || ''}
+                            onChange={(e) => setLocalKeys({ ...localKeys, openrouter: e.target.value })}
                         />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="huggingface" className="text-right">
-                            Hugging Face Token
-                        </Label>
-                        <Input
-                            id="huggingface"
-                            type="password"
-                            placeholder="hf_..."
-                            className="bg-[#1A1A1A] border-[#2A2A2A] text-white"
-                            value={localKeys.huggingface || ''}
-                            onChange={(e) => setLocalKeys({ ...localKeys, huggingface: e.target.value })}
-                        />
-                        <p className="text-[10px] text-zinc-500">Required for access to gated models like Llama-2.</p>
+                        <p className="text-[10px] text-zinc-500">Required for access to Claude 3.5, Llama 3, etc.</p>
                     </div>
                 </div>
 

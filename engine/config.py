@@ -5,8 +5,8 @@ class Settings(BaseSettings):
     """Application settings managed by Pydantic."""
     
     # API Keys
-    DEEPSEEK_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
+    OPENROUTER_API_KEY: Optional[str] = None
     
     # LLM Configuration
     OLLAMA_BASE_URL: Optional[str] = None

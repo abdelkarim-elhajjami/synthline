@@ -1,18 +1,32 @@
 "use client"
 
-import React from 'react';
-import { Card } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Slider } from "@/components/ui/slider";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Progress } from "@/components/ui/progress";
-import { LLM_OPTIONS } from "@/app/constants";
-import { PromptPreview } from "@/components/PromptPreview";
-import { ApiKeySettings } from "@/components/ApiKeySettings";
-import { useSynthline } from '@/context/SynthlineContext';
+import * as React from "react"
+import { Check, ChevronsUpDown } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { Card } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Slider } from "@/components/ui/slider"
+import { Button } from "@/components/ui/button"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Progress } from "@/components/ui/progress"
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command"
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover"
+
+import { PromptPreview } from "@/components/PromptPreview"
+import { ApiKeySettings } from "@/components/ApiKeySettings"
+import { useSynthline } from "@/context/SynthlineContext"
 
 export function GeneratorSection() {
     const {
@@ -28,8 +42,22 @@ export function GeneratorSection() {
         optimizedAtomicPrompts,
         currentPromptIndex,
         isPromptOptimized,
-        setCurrentPromptIndex
-    } = useSynthline();
+        setCurrentPromptIndex,
+        availableModels,
+        loadingModels
+    } = useSynthline()
+
+    const [open, setOpen] = React.useState(false)
+    const [searchValue, setSearchValue] = React.useState("")
+
+    // Helper to find label
+    const selectedModelLabel = React.useMemo(() => {
+        for (const group of availableModels) {
+            const found = group.items.find(item => item.value === formData.llm);
+            if (found) return found.label;
+        }
+        return formData.llm || "Select Model";
+    }, [availableModels, formData.llm]);
 
     return (
         <section className="space-y-4">
@@ -41,20 +69,91 @@ export function GeneratorSection() {
                 <Label className="text-white mb-4 block text-base font-medium">LLM Settings</Label>
 
                 <div className="mb-6">
-                    <Select
-                        value={formData.llm}
-                        onValueChange={(value) => handleInputChange('llm', value)}
-                        disabled={isGenerating || isOptimizingPrompt}
-                    >
-                        <SelectTrigger className="bg-[#1A1A1A] border-[#2A2A2A] text-white">
-                            <SelectValue placeholder="Select Model" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-[#1A1A1A] border-[#2A2A2A] text-white">
-                            {LLM_OPTIONS.map(option => (
-                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <Popover open={open} onOpenChange={setOpen}>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={open}
+                                className="w-full justify-between bg-[#1A1A1A] border-[#2A2A2A] text-white hover:bg-[#252525] hover:text-white"
+                                disabled={isGenerating || isOptimizingPrompt || loadingModels}
+                            >
+                                {loadingModels ? "Loading models..." : selectedModelLabel}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] p-0 bg-[#1A1A1A] border-[#2A2A2A] text-white">
+                            <Command className="bg-[#1A1A1A] text-white">
+                                <CommandInput placeholder="Search model..." className="text-white" value={searchValue} onValueChange={setSearchValue} />
+                                <CommandList>
+                                    <CommandEmpty>No model found.</CommandEmpty>
+                                    {availableModels.map((group, index) => {
+                                        // Special handling for Searchable groups (OpenRouter, OpenAI) to implement "Search-Only" UI
+                                        if (group.label === "OpenRouter (Searchable)" || group.label === "OpenAI (Searchable)") {
+                                            return (
+                                                <CommandGroup key={index} heading={group.label} className="text-zinc-400">
+                                                    {!searchValue ? (
+                                                        <CommandItem
+                                                            disabled
+                                                            className="hidden" // Hidden item forces group header to render
+                                                            value="openrouter-placeholder"
+                                                        >
+                                                            placeholder
+                                                        </CommandItem>
+                                                    ) : (
+                                                        group.items.map((option) => (
+                                                            <CommandItem
+                                                                key={option.value}
+                                                                value={option.label}
+                                                                onSelect={() => {
+                                                                    handleInputChange('llm', option.value);
+                                                                    setOpen(false);
+                                                                }}
+                                                                className="text-white aria-selected:bg-[#8A2BE2] aria-selected:text-white cursor-pointer"
+                                                            >
+                                                                <Check
+                                                                    className={cn(
+                                                                        "mr-2 h-4 w-4",
+                                                                        formData.llm === option.value ? "opacity-100" : "opacity-0"
+                                                                    )}
+                                                                />
+                                                                {option.label}
+                                                            </CommandItem>
+                                                        ))
+                                                    )}
+                                                </CommandGroup>
+                                            );
+                                        }
+
+                                        // Default rendering for other groups (Local, OpenAI)
+                                        return (
+                                            <CommandGroup key={index} heading={group.label} className="text-zinc-400">
+                                                {group.items.map((option) => (
+                                                    <CommandItem
+                                                        key={option.value}
+                                                        value={option.label}
+                                                        onSelect={() => {
+                                                            handleInputChange('llm', option.value);
+                                                            setOpen(false);
+                                                        }}
+                                                        className="text-white aria-selected:bg-[#8A2BE2] aria-selected:text-white cursor-pointer"
+                                                    >
+                                                        <Check
+                                                            className={cn(
+                                                                "mr-2 h-4 w-4",
+                                                                formData.llm === option.value ? "opacity-100" : "opacity-0"
+                                                            )}
+                                                        />
+                                                        {option.label}
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        );
+                                    })}
+                                </CommandList>
+                            </Command>
+                        </PopoverContent>
+                    </Popover>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

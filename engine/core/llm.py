@@ -1,31 +1,26 @@
 """
-Client for interacting with LLM APIs.
-Supports OpenAI, DeepSeek, and Hugging Face Inference APIs.
+Client for OpenAI and OpenRouter APIs.
 """
 import asyncio
 from typing import Any, Dict, List, Optional
 from openai import AsyncClient
-from huggingface_hub import AsyncInferenceClient
 from utils.logger import Logger
 
 class LLMClient:
-    """Client for OpenAI, DeepSeek, Ollama, and Hugging Face APIs."""
+    """Client for OpenAI and OpenRouter APIs."""
     
     def __init__(self, 
                  logger: Logger,
-                 deepseek_key: Optional[str] = None, 
                  openai_key: Optional[str] = None,
+                 openrouter_key: Optional[str] = None,
                  ollama_base_url: Optional[str] = None):
-        """Initialize the LLM client with default server-side API keys."""
-        self._default_deepseek_key = deepseek_key
+        """Initialize the LLM client with API keys."""
         self._default_openai_key = openai_key
+        self._default_openrouter_key = openrouter_key
         self._ollama_base_url = ollama_base_url
         
-        # Clients are cached but keys might change per request
-        # For OpenAI/DeepSeek, we might need new client instances if key changes
-        # Optimized: only cache the default clients
-        self._default_deepseek_client = None
         self._default_openai_client = None
+        self._default_openrouter_client = None
         self._ollama_client = None
         
         self._logger = logger
@@ -33,86 +28,56 @@ class LLMClient:
         self._max_retries = 3
 
     def _get_client(self, model: str, api_keys: Optional[Dict[str, str]] = None) -> Any:
-        """
-        Return the API client for the specified model and keys.
-        Prioritizes provided api_keys over defaults.
-        """
+        """Return the API client for the specified model and keys."""
         keys = api_keys or {}
         
-        # 1. Ollama (No Auth usually)
+        # 1. Ollama
         if model.startswith('ollama/'):
             if not self._ollama_client:
-                self._ollama_client = AsyncClient(
+                self._ollama_client = self._create_async_client(
                     base_url=self._ollama_base_url,
-                    api_key="dummy",
-                    timeout=self._request_timeout,
-                    max_retries=self._max_retries
+                    api_key="dummy"
                 )
             return self._ollama_client
             
-        # 2. DeepSeek
-        elif model == 'deepseek-chat':
-            key = keys.get('deepseek') or self._default_deepseek_key
-            if not key:
-                error_msg = "DeepSeek API key is missing. Cannot use deepseek-chat model."
-                self._logger.log_error(error_msg, "llm", {"model": model})
-                raise ValueError(error_msg)
+        # 2. OpenRouter
+        elif model.startswith('openrouter/'):
+            key = keys.get('openrouter') or self._default_openrouter_key or keys.get('openai')
             
-            # If using custom key, create ephemeral client
-            if key != self._default_deepseek_key:
-                return AsyncClient(
-                    api_key=key,
-                    base_url="https://api.deepseek.com",
-                    timeout=self._request_timeout,
-                    max_retries=self._max_retries
-                )
-            
-            # Use default client
-            if not self._default_deepseek_client:
-                self._default_deepseek_client = AsyncClient(
-                    api_key=self._default_deepseek_key,
-                    base_url="https://api.deepseek.com",
-                    timeout=self._request_timeout,
-                    max_retries=self._max_retries
-                )
-            return self._default_deepseek_client
-            
-        # 3. OpenAI
-        elif model == 'gpt-4.1-nano-2025-04-14':
-            key = keys.get('openai') or self._default_openai_key
-            if not key:
-                error_msg = "OpenAI API key is missing. Cannot use gpt-4.1-nano-2025-04-14 model."
-                self._logger.log_error(error_msg, "llm", {"model": model})
-                raise ValueError(error_msg)
-                
-            if key != self._default_openai_key:
-                return AsyncClient(
-                    api_key=key,
-                    timeout=self._request_timeout,
-                    max_retries=self._max_retries
-                )
-                
-            if not self._default_openai_client:
-                self._default_openai_client = AsyncClient(
-                    api_key=self._default_openai_key,
-                    timeout=self._request_timeout,
-                    max_retries=self._max_retries
-                )
-            return self._default_openai_client
-            
-        # 4. Hugging Face Inference
-        else:
-            # Assume any other model is HF
-            hf_token = keys.get('huggingface')
-            # Note: HF inference can work anonymously for some models, but better with token.
-            # If no token provided, try without one or raise error if needed. 
-            # Ideally we have a server-side default HF token too? 
-            # For now, let's assume anonymous if no token, or user provided.
-            
-            return AsyncInferenceClient(
-                model=model,
-                token=hf_token
+            if not key or key == self._default_openrouter_key:
+                if not self._default_openrouter_client:
+                    self._default_openrouter_client = self._create_async_client(
+                        api_key=self._default_openrouter_key or "sk-or-v1-dummy",
+                        base_url="https://openrouter.ai/api/v1"
+                    )
+                return self._default_openrouter_client
+
+            return self._create_async_client(
+                api_key=key,
+                base_url="https://openrouter.ai/api/v1"
             )
+
+        # 3. OpenAI
+        else:
+            key = keys.get('openai') or self._default_openai_key
+
+            if key == self._default_openai_key:
+                 if not self._default_openai_client:
+                     self._default_openai_client = self._create_async_client(
+                        api_key=self._default_openai_key or "missing-key"
+                     )
+                 return self._default_openai_client
+            
+            return self._create_async_client(api_key=key or "missing-key")
+
+    def _create_async_client(self, api_key: str, base_url: Optional[str] = None) -> AsyncClient:
+        """Helper to create an AsyncClient instance."""
+        return AsyncClient(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=self._request_timeout,
+            max_retries=self._max_retries
+        )
 
     async def get_completion(self, 
                              prompt: str,
@@ -123,31 +88,24 @@ class LLMClient:
         """Generate a completion for a given prompt using the specified LLM."""
         
         client = self._get_client(model, api_keys)
-        # Handle Ollama/OpenAI/DeepSeek naming conventions
-        model_name = model.split('/')[-1] if model.startswith('ollama/') else model
         
+        if model.startswith('ollama/'):
+            model_name = model.split('/')[-1]
+        elif model.startswith('openrouter/'):
+            model_name = model.split('/', 1)[1]
+        elif model.startswith('openai/'):
+            model_name = model.split('/', 1)[1]
+        else:
+            model_name = model
+
         try:
-            # Handle Hugging Face Inference
-            if isinstance(client, AsyncInferenceClient):
-                # HF Inference API logic
-                response = await client.text_generation(
-                    prompt,
-                    max_new_tokens=1024, # Reasonable default
-                    temperature=temperature,
-                    top_p=top_p,
-                    return_full_text=False
-                )
-                completion_text = response
-            
-            # Handle OpenAI/Compatiable clients
-            else:
-                completion = await client.chat.completions.create(
-                    model=model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=temperature,
-                    top_p=top_p
-                )
-                completion_text = completion.choices[0].message.content
+            completion = await client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                top_p=top_p
+            )
+            completion_text = completion.choices[0].message.content
             
             self._logger.log_conversation(
                 prompt=prompt,

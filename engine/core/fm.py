@@ -72,14 +72,8 @@ class FM:
                 subfeatures={
                     'llm': Feature(
                         name='LLM', 
-                        feature_type='select', 
-                        options=[
-                            'deepseek-chat', 
-                            'gpt-4.1-nano-2025-04-14', 
-                            'mistralai/Mistral-7B-Instruct-v0.2',
-                            'google/gemma-7b',
-                            'ollama/ministral-3:14b'
-                        ]
+                        feature_type='input', # Changed from 'select' to 'input' as options are removed
+                        # options list removed as per instruction
                     ),
                     'temperature': Feature(name='Temperature', feature_type='input'),
                     'top_p': Feature(name='Top P', feature_type='input'),

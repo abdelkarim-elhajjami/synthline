@@ -12,7 +12,7 @@ const initialFormState: FormData = {
     top_p: 1.0,
     total_samples: 10,
     samples_per_prompt: 5,
-    llm: "gpt-4.1-nano-2025-04-14",
+    llm: "",
     specification_format: [],
     specification_level: [],
     stakeholder: [],

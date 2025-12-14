@@ -1,9 +1,17 @@
 "use client"
 
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, ReactNode, useState } from 'react';
 import { useSynthlineForm } from '@/hooks/useSynthlineForm';
 import { useSynthlineWebSocket } from '@/hooks/useSynthlineWebSocket';
+import { useModelFetcher, GroupedModels } from '@/hooks/useModelFetcher';
 import { FormData, Results, AtomicPrompt } from '@/app/types';
+
+// Define ApiKeys locally if not in types
+export interface ApiKeys {
+    openai?: string;
+    openrouter?: string;
+    [key: string]: string | undefined;
+}
 
 interface SynthlineContextType {
     // Form Data
@@ -30,10 +38,14 @@ interface SynthlineContextType {
     currentPromptIndex: number;
     setCurrentPromptIndex: (index: number) => void;
 
-
     // API Keys State
-    apiKeys: Record<string, string>;
-    setApiKeys: (keys: Record<string, string>) => void;
+    apiKeys: ApiKeys;
+    setApiKeys: (keys: ApiKeys) => void;
+
+    // Dynamic Models
+    availableModels: GroupedModels[];
+    loadingModels: boolean;
+    refreshModels: () => Promise<void>;
 
     // Actions
     handleOptimizePrompt: () => Promise<void>;
@@ -44,13 +56,25 @@ const SynthlineContext = createContext<SynthlineContextType | undefined>(undefin
 
 export function SynthlineProvider({ children }: { children: ReactNode }) {
     const { formData, handleInputChange, hasValidValue, validateForm } = useSynthlineForm();
-    const [apiKeys, setApiKeys] = React.useState<Record<string, string>>({});
+    const [apiKeys, setApiKeys] = useState<ApiKeys>({});
+
+    // Model Fetching Hook
+    const { availableModels, loadingModels, refreshModels } = useModelFetcher(apiKeys);
+
+    // Cast apiKeys to compatible type for the hook if needed, or update hook type.
+    // The hook expects Record<string, string>. Our ApiKeys has string | undefined.
+    // We can filter out undefined values before passing or trust that it works at runtime.
+    // To satisfy TS:
+    const cleanApiKeys = Object.entries(apiKeys).reduce((acc, [key, value]) => {
+        if (value) acc[key] = value;
+        return acc;
+    }, {} as Record<string, string>);
 
     const wsState = useSynthlineWebSocket({
         formData,
         hasValidValue,
         validateForm,
-        apiKeys // Pass apiKeys to the hook
+        apiKeys: cleanApiKeys
     });
 
     const value = {
@@ -60,6 +84,9 @@ export function SynthlineProvider({ children }: { children: ReactNode }) {
         validateForm,
         apiKeys,
         setApiKeys,
+        availableModels,
+        loadingModels,
+        refreshModels,
         ...wsState
     };
 

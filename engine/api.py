@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from dependencies import dependencies
-from routes import features, generation, optimization
+from routes import features, generation, optimization, models
 
 API_TITLE = "Synthline API"
 
@@ -51,6 +51,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(features.router, prefix="/api", tags=["features"])
 app.include_router(generation.router, prefix="/api", tags=["generation"])
 app.include_router(optimization.router, prefix="/api", tags=["optimization"])
+app.include_router(models.router, prefix="/api/models", tags=["models"])
 
 @app.websocket("/ws/{connection_id}")
 async def websocket_endpoint(websocket: WebSocket, connection_id: str) -> None:

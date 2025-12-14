@@ -38,8 +38,8 @@ class Dependencies:
         if not self._llm_client:
             self._llm_client = LLMClient(
                 logger=self.logger,
-                deepseek_key=settings.DEEPSEEK_API_KEY,
                 openai_key=settings.OPENAI_API_KEY,
+                openrouter_key=settings.OPENROUTER_API_KEY,
                 ollama_base_url=settings.OLLAMA_BASE_URL
             )
         return self._llm_client
