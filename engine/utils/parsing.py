@@ -16,7 +16,8 @@ def parse_completion(text: str, expected_count: int) -> List[str]:
     Returns:
         List of sample texts
     """
-    if expected_count > 1:
+    # Try JSON parsing if expecting multiple samples OR if text looks like a JSON array
+    if expected_count > 1 or text.strip().startswith('['):
         # First try parsing as valid JSON array
         samples = try_parse_json_array(text)
         if samples:

@@ -133,6 +133,7 @@ class Generator:
         else:
             prompt = self._promptline.build(atomic_config)
         
+        sample_texts = []
         try:
             completion_list = await self._llm.get_batch_completions(
                 prompts=[prompt], 

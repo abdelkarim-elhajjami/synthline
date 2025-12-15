@@ -1,4 +1,3 @@
-import pytest
 from fastapi.testclient import TestClient
 from api import app
 
@@ -16,21 +15,13 @@ def test_websocket_race_condition():
         "ml_task": {}
     }
     
-    # TestClient's websocket_connect is synchronous context manager, 
-    # but it simulates the connection.
-    # To truly test the race condition, we need to see if the server registers it.
-    
     with client.websocket_connect(f"/ws/{connection_id}") as websocket:
-        # Immediately try to use the connection
         response = client.post(
             "/api/optimize-prompt",
             json={"features": features, "connection_id": connection_id}
         )
         
-        # If the race condition exists, this might be 400
-        # If fixed (or not present in TestClient), it's 200/503 (depending on external services)
-        
-        # Note: We expect 503 because promptline service is mocked/not initiated or 200 if mocked.
-        # But definitely NOT 400.
-        
+        # This test aims to prevent a race condition that could result in a 400 Bad Request.
+        # A successful response should yield a 200 OK or 503 Service Unavailable (if external services are mocked/not running).
+        # The critical check is that the response status code must not be 400.
         assert response.status_code != 400, f"Got 400 Bad Request: {response.text}"

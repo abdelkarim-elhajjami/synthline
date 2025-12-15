@@ -3,10 +3,13 @@ set -e
 
 APP_NAME="synthline"
 
-if [ "$(docker ps -q -f name=$APP_NAME)" ]; then
+CONTAINER_ID=$(docker ps -aq -f "name=^/${APP_NAME}$")
+
+if [ -n "$CONTAINER_ID" ]; then
     echo "Stopping $APP_NAME..."
-    docker stop $APP_NAME
+    docker stop "$CONTAINER_ID" >/dev/null 2>&1 || true
+    docker rm "$CONTAINER_ID"
     echo "Stopped."
 else
-    echo "$APP_NAME is not running."
+    echo "$APP_NAME does not exist."
 fi
