@@ -179,7 +179,6 @@ export function useSynthlineWebSocket({ formData, hasValidValue, validateForm, a
         formData.samples_per_prompt,
         formData.prompt_approach,
         formData.llm,
-        hasValidValue
     ]);
 
     const handleOptimizePrompt = async () => {
