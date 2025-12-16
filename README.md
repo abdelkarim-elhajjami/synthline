@@ -1,3 +1,11 @@
+---
+title: Synthline
+colorFrom: purple
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # Synthline
 Synthetic Data Generation for Requirements Engineering using Large Language Models.
 
