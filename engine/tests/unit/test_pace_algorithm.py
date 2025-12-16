@@ -13,7 +13,7 @@ def mock_logger():
 
 @pytest.fixture(autouse=True)
 def mock_sentence_transformer():
-    with patch("core.pace.SentenceTransformer") as mock_st_cls:
+    with patch("sentence_transformers.SentenceTransformer") as mock_st_cls:
         mock_model = MagicMock()
         mock_st_cls.return_value = mock_model
         mock_model.encode.return_value = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=float) 

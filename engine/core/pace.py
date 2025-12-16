@@ -4,9 +4,6 @@ https://aclanthology.org/2024.findings-acl.436/
 """
 from typing import Any, Dict, List, Tuple, Optional
 import asyncio
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_distances
 from core.llm import LLMClient
 from utils.logger import Logger
 from utils.parsing import parse_completion
@@ -24,6 +21,7 @@ class PACE:
         """Initialize the PACE optimizer."""
         self._llm = llm_client
         self._logger = logger
+        from sentence_transformers import SentenceTransformer
         self._model = SentenceTransformer('all-mpnet-base-v2')
     
     async def optimize_batch(
@@ -388,6 +386,9 @@ Return only the new Instruction as plain text — no extra text, quotes, or form
             # Need at least two samples to calculate pairwise distance
             if len(parsed_samples) <= 1:
                  return 0.0
+
+            import numpy as np
+            from sklearn.metrics.pairwise import cosine_distances
 
             # Calculate embeddings and cosine distances
             embeddings = self._model.encode(parsed_samples)

@@ -2,24 +2,29 @@
 Logging system for Synthline.
 """
 import json
+import logging
 import os
 import random
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 class Logger:
-    """
-    Stateless logger for Synthline.
-    Logs to stdout in structured JSON format.
-    Controlled by DEBUG_LOGGING environment variable.
-    """
+
     def __init__(self, debug_mode: bool = True):
         """
-        Initialize the logger.
-        debug_mode is read from env var 'DEBUG_LOGGING' if not provided explicitly.
+        Initialize the logger using standard logging module.
         """
         self.debug_mode = debug_mode or (os.environ.get("DEBUG_LOGGING", "false").lower() == "true")
         self.conversation_sample_rate = 0.1 # Log 10% of conversations in debug mode
+        
+        self._logger = logging.getLogger("Synthline")
+        self._logger.setLevel(logging.DEBUG if self.debug_mode else logging.INFO)
+        
+        if not self._logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(message)s')
+            handler.setFormatter(formatter)
+            self._logger.addHandler(handler)
         
     def log_info(self, 
                  message: str, 
@@ -39,7 +44,6 @@ class Logger:
                  context: Optional[Dict[str, Any]] = None) -> None:
         """
         Log an error to stdout.
-        Errors are ALWAYS logged, regardless of debug mode.
         """
         self._log("ERROR", component, {
             "error": error_msg,
@@ -53,8 +57,6 @@ class Logger:
                   config: Dict[str, Any]) -> None:
         """
         Log prompt optimization events.
-        Only logs 'NEW BEST PROMPT' or 'FINAL' events to avoid noise.
-        Only active in DEBUG_MODE.
         """
         if not self.debug_mode:
             return
@@ -80,8 +82,6 @@ class Logger:
                         top_p: float) -> None:
         """
         Log an LLM conversation.
-        Only active in DEBUG_MODE.
-        Uses sampling to log only a fraction of conversations to avoid spam.
         """
         if not self.debug_mode:
             return
@@ -97,11 +97,18 @@ class Logger:
         })
 
     def _log(self, level: str, component: str, data: Dict[str, Any]) -> None:
-        """Write a structured JSON log line to stdout."""
+        """Write a structured JSON log line using standard logger."""
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "level": level,
             "component": component,
             **data
         }
-        print(json.dumps(log_entry, ensure_ascii=False))
+        json_msg = json.dumps(log_entry, ensure_ascii=False)
+        
+        if level == "ERROR":
+            self._logger.error(json_msg)
+        elif level == "DEBUG":
+            self._logger.debug(json_msg)
+        else:
+            self._logger.info(json_msg)
