@@ -1,5 +1,6 @@
 ---
 title: Synthline
+emoji: ⚡
 colorFrom: purple
 colorTo: indigo
 sdk: docker
