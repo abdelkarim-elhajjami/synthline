@@ -3,7 +3,7 @@ name: Deploy to Hugging Face Space
 on:
   push:
     branches:
-      - space
+      - main
 
 jobs:
   test:
@@ -51,13 +51,7 @@ jobs:
 
           echo "Pushing to Hugging Face Space: $HF_USERNAME/$HF_SPACE_NAME"
           
-          # --------------------------------------------------------------------------
-          # STRATEGY: Fresh Repo Push
-          # We delete the existing .git folder and initialize a brand new git repo.
-          # This ensures we push ONLY the current file contents (snapshot)
-          # and ZERO history/binary blobs from the past.
-          # --------------------------------------------------------------------------
-          
+          # Reinitialize Git to push only current file contents.
           rm -rf .git
           git init
           git checkout -b main
