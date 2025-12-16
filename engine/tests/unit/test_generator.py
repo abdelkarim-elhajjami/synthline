@@ -47,8 +47,7 @@ def test_generate_success(generator, mock_llm, mock_promptline):
         mock_llm.get_batch_completions.return_value = [mock_response]
         
         # Act
-        result = await generator.generate(features)
-        samples = result["samples"]
+        samples = await generator.generate(features)
         
         # Assert
         assert len(samples) == 2
@@ -86,10 +85,10 @@ def test_generate_handles_llm_failure(generator, mock_llm, mock_logger, mock_pro
         mock_llm.get_batch_completions.side_effect = Exception("API Rate Limit Exceeded")
         
         # Act
-        result = await generator.generate(features)
+        samples = await generator.generate(features)
         
         # Assert
-        assert result["samples"] == []
+        assert samples == []
         mock_logger.log_error.assert_called_once()
         assert "API Rate Limit Exceeded" in str(mock_logger.log_error.call_args)
 
@@ -162,8 +161,7 @@ def test_generate_token_limit_handling(generator, mock_llm, mock_promptline, moc
         ]
         
         # Act
-        result = await generator.generate(features)
-        samples = result["samples"]
+        samples = await generator.generate(features)
         
         # Assert
         # The generator should have made 2 calls and collected both samples.

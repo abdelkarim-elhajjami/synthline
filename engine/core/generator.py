@@ -28,12 +28,9 @@ class Generator:
         features: Dict[str, Any],
         progress_callback: ProgressCallback = None,
         api_keys: Dict[str, str] = None
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         """
         Generate synthetic data based on feature configuration.
-        Returns a dictionary with keys:
-        - samples: List[Dict[str, Any]]
-        - metadata: Dict[str, Any] (contains usage info like fewer_samples_received)
         """
         all_samples = []
         self._fewer_samples_received = False
@@ -115,12 +112,7 @@ class Generator:
         if progress_callback:
             await track_progress(progress_callback, 100)
             
-        return {
-            "samples": all_samples,
-            "metadata": {
-                "fewer_samples_received": self._fewer_samples_received
-            }
-        }
+        return all_samples
     
     async def _generate_samples(
         self, 

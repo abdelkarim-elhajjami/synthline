@@ -78,13 +78,11 @@ async def run_generation(
                     deps.logger.log_error(f"Failed to send progress: {str(ws_e)}", "websocket")
         
         # Generate samples
-        result = await deps.generator.generate(
+        samples = await deps.generator.generate(
             features=features,
             progress_callback=progress_callback,
             api_keys=api_keys
         )
-        samples = result["samples"]
-        metadata = result["metadata"]
         
         # Process results in memory (stateless)
         output_data = deps.output.process(
@@ -96,7 +94,10 @@ async def run_generation(
         websocket = deps.system_ctx.get_connection(connection_id)
         if websocket:
             try:
-                fewer_samples = metadata.get("fewer_samples_received", False)
+                # We need to access private member for fewer samples count or expose it. 
+                # Ideally, generator returns this info. For now, we access it as before but through deps.
+                # A better refactor would be to have generate return a Result object.
+                fewer_samples = deps.generator._fewer_samples_received
                 
                 await websocket.send_json({
                     "type": "generation_complete",

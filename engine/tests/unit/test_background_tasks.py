@@ -11,10 +11,7 @@ def mock_deps():
     deps.logger = MagicMock()
     
     # Setup Generator to return a sample list
-    deps.generator.generate = AsyncMock(return_value={
-        "samples": [{"text": "Sample"}],
-        "metadata": {"fewer_samples_received": False}
-    })
+    deps.generator.generate = AsyncMock(return_value=[{"text": "Sample"}])
     deps.generator._fewer_samples_received = False
     
     # Setup Output to return some content
