@@ -1,0 +1,89 @@
+name: Deploy to Hugging Face Space
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Run tests
+        run: |
+          PYTHONPATH=.:server pytest
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }} 
+          HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
+        run: |
+          if [ -z "$HF_TOKEN" ] || [ -z "$HF_USERNAME" ] || [ -z "$HF_SPACE_NAME" ]; then
+            echo "Secrets are missing! Please check HF_TOKEN, HF_USERNAME, and HF_SPACE_NAME."
+            exit 1
+          fi
+
+          echo "Pushing to Hugging Face Space: $HF_USERNAME/$HF_SPACE_NAME"
+          
+          # Remove GitHub-only files not needed on HF Spaces
+          rm -rf docs/ .github/ tests/ LICENSE README.md
+
+          # Generate HF Space README with required frontmatter
+          cat > README.md << 'SPACE_README'
+          ---
+          title: Synthline
+          emoji: ⚡
+          colorFrom: purple
+          colorTo: yellow
+          sdk: docker
+          app_port: 7860
+          license: apache-2.0
+          ---
+
+          # Synthline
+
+          Feature Model–Guided Synthetic Data Generator.
+
+          Generate constrained synthetic text classification datasets whose structure is governed by a FeatureIDE feature model.
+
+          For documentation and the Python SDK, visit the [GitHub repository](https://github.com/abdelkarim-elhajjami/Synthline).
+          SPACE_README
+
+          # Reinitialize Git to push only current file contents.
+          rm -rf .git
+          git init
+          git checkout -b main
+          
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          
+          git add .
+          git commit -m "Deploy to Spaces"
+          
+          # Force push to the Space
+          git remote add space https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$HF_SPACE_NAME
+          git push -f space main

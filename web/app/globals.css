@@ -1,58 +1,185 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 3.9%;
-  --foreground: 0 0% 98%;
-  --card: 0 0% 9.4%;
-  --card-foreground: 0 0% 98%;
-  --popover: 0 0% 9.4%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 264 81% 52%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 240 3.7% 15.9%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 240 3.7% 15.9%;
-  --muted-foreground: 240 5% 64.9%;
-  --accent: 240 3.7% 15.9%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 240 3.7% 15.9%;
-  --input: 240 3.7% 15.9%;
-  --ring: 240 4.9% 83.9%;
+  --background: #e4eeee;
+  --background-alt: #d8e6e6;
+  --foreground: #130821;
+  --foreground-muted: #5a4a8a;
+  --purple: #7B00FF;
+  --purple-dark: #6800dd;
+  --purple-light: #9d4eff;
+  --accent: #2d1b69;
+  --accent-dark: #1a0f3d;
+  --highlight: #ff6b00;
+  --highlight-hover: #e55a00;
+  --card-bg: #ffffff;
+  --card-border: rgba(45, 27, 105, 0.15);
+  --input-bg: #f8fafa;
+  --input-border: rgba(45, 27, 105, 0.2);
+  --white: #ffffff;
   --radius: 0.75rem;
-}
 
-.dark {
-  --background: 0 0% 3.9%;
-  --foreground: 0 0% 98%;
-  --card: 0 0% 9.4%;
-  --card-foreground: 0 0% 98%;
-  --popover: 0 0% 9.4%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 264 81% 52%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 240 3.7% 15.9%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 240 3.7% 15.9%;
-  --muted-foreground: 240 5% 64.9%;
-  --accent: 240 3.7% 15.9%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 240 3.7% 15.9%;
-  --input: 240 3.7% 15.9%;
-  --ring: 240 4.9% 83.9%;
+  --border: 260 30% 85%;
+  --input: 260 30% 95%;
+  --ring: 270 100% 50%;
+  --primary: 270 100% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 260 30% 95%;
+  --secondary-foreground: 260 50% 15%;
+  --muted: 260 20% 90%;
+  --muted-foreground: 260 30% 40%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 260 50% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 260 50% 10%;
+  --destructive: 0 65% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --accent: 260 40% 25%;
+  --accent-foreground: 0 0% 100%;
 }
 
 @layer base {
   * {
     @apply border-border;
   }
+
   body {
-    @apply bg-background text-foreground;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
   }
 }
 
+.font-serif {
+  font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--purple);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--purple-dark);
+}
+
+::selection {
+  background: var(--purple);
+  color: white;
+}
+
+.elegant-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 20px rgba(45, 27, 105, 0.06);
+  transition: all 0.3s ease;
+}
+
+.elegant-card:hover {
+  box-shadow: 0 8px 30px rgba(45, 27, 105, 0.1);
+}
+
+.elegant-input {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--foreground);
+  transition: all 0.2s ease;
+}
+
+.elegant-input:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(123, 0, 255, 0.1);
+  outline: none;
+}
+
+.elegant-input::placeholder {
+  color: var(--foreground-muted);
+  opacity: 0.6;
+}
+
+.elegant-tag {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--foreground);
+  border-radius: calc(var(--radius) - 2px);
+  transition: all 0.2s ease;
+}
+
+.elegant-tag:hover {
+  border-color: var(--purple);
+  background: rgba(123, 0, 255, 0.05);
+}
+
+.elegant-tag.selected {
+  background: var(--purple);
+  border-color: var(--purple);
+  color: white;
+}
+
+.elegant-button {
+  background: var(--purple);
+  color: white;
+  border-radius: calc(var(--radius) - 2px);
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.elegant-button:hover {
+  background: var(--purple-dark);
+  transform: translateY(-1px);
+}
+
+.elegant-button.secondary {
+  background: var(--highlight);
+}
+
+.elegant-button.secondary:hover {
+  background: var(--highlight-hover);
+}
+
+.elegant-button:active {
+  transform: translateY(0);
+}
+
+input[type="range"] {
+  accent-color: var(--purple) !important;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  background: var(--purple);
+}
+
+input[type="range"]::-moz-range-thumb {
+  background: var(--purple);
+}
+
+.section-heading {
+  font-family: 'Playfair Display', serif;
+  font-weight: 600;
+  font-size: 1.5rem;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+
+.elegant-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--card-border), transparent);
+  margin: 1.5rem 0;
+}

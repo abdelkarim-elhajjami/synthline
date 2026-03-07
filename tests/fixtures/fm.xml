@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<extendedFeatureModel>
+	<properties>
+		<graphics key="autolayoutconstraints" value="false"/>
+		<graphics key="legendautolayout" value="true"/>
+		<graphics key="showconstraints" value="true"/>
+		<graphics key="showshortnames" value="false"/>
+		<graphics key="layout" value="horizontal"/>
+		<graphics key="showcollapsedconstraints" value="true"/>
+		<graphics key="legendhidden" value="false"/>
+		<graphics key="layoutalgorithm" value="1"/>
+	</properties>
+	<struct>
+		<and abstract="true" mandatory="true" name="Artefact">
+			<graphics key="collapsed" value="false"/>
+			<and abstract="true" mandatory="true" name="Requirement">
+				<graphics key="collapsed" value="true"/>
+				<alt abstract="true" name="RequirementType">
+					<graphics key="collapsed" value="true"/>
+					<and name="Functional">
+						<graphics key="collapsed" value="true"/>
+						<alt abstract="true" name="FunctionalSubtype">
+							<graphics key="collapsed" value="true"/>
+							<feature name="DataPerspective"/>
+							<feature name="FunctionalPerspective"/>
+							<feature name="BehavioralPerspective"/>
+						</alt>
+					</and>
+					<and name="Quality">
+						<graphics key="collapsed" value="true"/>
+						<alt abstract="true" name="QualitySubtype">
+							<graphics key="collapsed" value="true"/>
+							<feature name="FunctionalSuitability"/>
+							<feature name="Security"/>
+							<feature name="PerformanceEfficiency"/>
+							<feature name="Compatibility"/>
+							<feature name="Maintainability"/>
+							<feature name="InteractionCapability"/>
+							<feature name="Flexibility"/>
+							<feature name="Safety"/>
+							<feature name="Reliability"/>
+						</alt>
+					</and>
+					<and name="Constraint">
+						<graphics key="collapsed" value="true"/>
+						<alt abstract="true" name="ConstraintSubtype">
+							<graphics key="collapsed" value="true"/>
+							<feature name="Cultural"/>
+							<feature name="Legal"/>
+							<feature name="Organisational"/>
+							<feature name="Physical"/>
+							<feature name="Project"/>
+						</alt>
+					</and>
+				</alt>
+				<feature name="Domain">
+					<attribute name="Value" type="string" unit=""/>
+				</feature>
+				<feature name="StakeholderViewpoint">
+					<graphics key="collapsed" value="false"/>
+					<attribute name="Value" type="string" unit=""/>
+				</feature>
+				<and abstract="true" name="Context">
+					<graphics key="collapsed" value="true"/>
+					<feature name="Usage"/>
+					<feature name="Subject"/>
+					<feature name="ITSystem"/>
+					<feature name="Development"/>
+					<feature name="Business"/>
+					<feature name="Innovation"/>
+					<feature name="Society"/>
+					<feature name="Technical"/>
+				</and>
+				<and abstract="true" mandatory="true" name="Description">
+					<graphics key="collapsed" value="true"/>
+					<alt abstract="true" mandatory="true" name="DescriptionType">
+						<graphics key="collapsed" value="false"/>
+						<feature name="ProseNL"/>
+						<and abstract="true" name="ControlledNL">
+							<graphics key="collapsed" value="false"/>
+							<alt abstract="true" mandatory="true" name="EARS">
+								<graphics key="collapsed" value="false"/>
+								<feature name="Ubiquitous"/>
+								<feature name="EventDriven"/>
+								<feature name="UnwantedBehavior"/>
+								<feature name="StateDriven"/>
+								<feature name="OptionalFeature"/>
+							</alt>
+						</and>
+					</alt>
+					<feature mandatory="true" name="Language">
+						<attribute name="Value" type="string" unit=""/>
+					</feature>
+				</and>
+				<alt abstract="true" name="QualityProfile">
+					<graphics key="collapsed" value="true"/>
+					<feature name="WellFormed"/>
+					<or abstract="true" name="DefectInjection">
+						<graphics key="collapsed" value="true"/>
+						<feature name="Ambiguous"/>
+						<feature name="Incomplete"/>
+						<feature name="NonAtomic"/>
+						<feature name="NonVerifiable"/>
+						<feature name="ImplementationBound"/>
+						<feature name="Inconsistent"/>
+						<feature name="Incomprehensible"/>
+					</or>
+				</alt>
+				<alt abstract="true" name="AbstractionLevel">
+					<graphics key="collapsed" value="true"/>
+					<feature name="HighLevel"/>
+					<feature name="DetailedLevel"/>
+				</alt>
+			</and>
+		</and>
+	</struct>
+	<constraints>
+		<rule>
+			<imp>
+				<var>ControlledNL</var>
+				<var>WellFormed</var>
+			</imp>
+		</rule>
+	</constraints>
+</extendedFeatureModel>

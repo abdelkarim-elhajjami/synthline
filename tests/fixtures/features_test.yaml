@@ -1,0 +1,14 @@
+RequirementType:
+  - Quality
+Domain:
+  - Healthcare Information System
+AbstractionLevel:
+  - HighLevel
+  - DetailedLevel
+DescriptionType:
+  - ProseNL
+Context:
+  - Usage
+  - ITSystem
+Language:
+  - EN

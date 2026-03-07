@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 200">
+  <rect width="900" height="200" rx="12" fill="#7B00FF"/>
+
+  <g opacity="0.06" fill="#ffffff">
+    <circle cx="45" cy="30" r="1"/><circle cx="120" cy="55" r="0.8"/><circle cx="210" cy="20" r="1.2"/>
+    <circle cx="310" cy="70" r="0.7"/><circle cx="400" cy="15" r="1"/><circle cx="480" cy="60" r="0.9"/>
+    <circle cx="560" cy="35" r="1.1"/><circle cx="650" cy="75" r="0.8"/><circle cx="730" cy="25" r="1"/>
+    <circle cx="820" cy="50" r="0.9"/><circle cx="870" cy="80" r="0.7"/><circle cx="80" cy="90" r="1"/>
+    <circle cx="170" cy="110" r="0.8"/><circle cx="260" cy="130" r="1.1"/><circle cx="350" cy="105" r="0.7"/>
+    <circle cx="440" cy="140" r="1"/><circle cx="530" cy="115" r="0.9"/><circle cx="620" cy="145" r="0.8"/>
+    <circle cx="710" cy="100" r="1.2"/><circle cx="800" cy="135" r="0.7"/><circle cx="55" cy="160" r="0.9"/>
+    <circle cx="150" cy="175" r="1"/><circle cx="250" cy="165" r="0.8"/><circle cx="340" cy="180" r="1.1"/>
+    <circle cx="430" cy="170" r="0.7"/><circle cx="520" cy="185" r="1"/><circle cx="610" cy="160" r="0.9"/>
+    <circle cx="700" cy="175" r="0.8"/><circle cx="790" cy="165" r="1"/><circle cx="860" cy="180" r="0.7"/>
+  </g>
+
+  <text x="450" y="92" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-size="52" font-weight="900" fill="#ff6b00">Synthline</text>
+
+  <text x="450" y="132" text-anchor="middle" font-family="'Space Grotesk', 'Inter', 'Helvetica Neue', sans-serif" font-size="17" font-weight="700" fill="#ffffff" opacity="0.9">Feature Model&#x2013;Guided Synthetic Data Generator</text>
+</svg>

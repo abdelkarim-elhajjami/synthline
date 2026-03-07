@@ -1,5 +1,3 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # Dependencies
 node_modules/
 .pnp/
@@ -11,7 +9,7 @@ node_modules/
 __pycache__/
 *.py[cod]
 *.egg-info/
-venv/
+.venv/
 dist/
 build/
 
@@ -23,8 +21,8 @@ out/
 .env
 
 # Application specific
-output/
-logs/
+server/config/uploaded_fm.xml
+sessions/
 
 # System files
 .DS_Store

@@ -1,99 +1,180 @@
-# Synthline
+<p align="center">
+  <img src="https://raw.githubusercontent.com/abdelkarim-elhajjami/synthline/main/docs/header.svg" alt="Synthline" width="900"/>
+</p>
 
-Synthline is a tool for generating high-quality synthetic data for requirements engineering. It leverages large language models (LLMs) to create diverse, customizable requirement samples according to specified attributes.
+<p align="center">
+  <a href="https://github.com/abdelkarim-elhajjami/synthline/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-7B00FF" alt="License"></a>
+  <a href="https://pypi.org/project/synthline/"><img src="https://img.shields.io/pypi/v/synthline?color=7B00FF" alt="PyPI"></a>
+  <a href="https://pypi.org/project/synthline/"><img src="https://img.shields.io/pypi/pyversions/synthline?color=7B00FF" alt="Python"></a>
+</p>
 
-## Overview
+Generate synthetic text classification datasets whose structure is governed by a [FeatureIDE](https://featureide.github.io/) feature model.
+Domain constraints are formalized, validated, and enforced — before any text is produced.
 
-Synthline generates high-quality synthetic data for training and evaluating AI models in Requirements Engineering. It uses large language models (gpt-4.1-nano-2025-04-14, DeepSeek) to produce realistic requirements with configurable properties.
+---
 
-### Key Features
+## What Can You Do
 
-- **LLM-Powered Generation**: Using gpt-4.1-nano-2025-04-14 and DeepSeek models
-- **Highly Configurable**: Control all aspects of generated requirements
-- **Multiple Output Formats**: Export as JSON or CSV
-- **Web Interface**: Intuitive UI for configuration
+- **Generate constrained synthetic data** from a feature model that defines valid attribute combinations for your domain — no real data required.
+- **Optimize prompts** with PACE (Prompt Actor-Critic Editing) to maximize diversity and text-attribute alignment before generation.
+- **Verify alignment** with an NLI-based quality gate that checks each instance against its conditioning attributes, with automatic retry on mismatch.
+- **Use any LLM** — OpenAI, OpenRouter, Ollama (local), HuggingFace Inference API.
+- **Export results** as CSV, pandas DataFrames, or artifact directories.
 
-## New Feature: PACE Prompt Optimization
+---
 
-Synthline now includes PACE (Prompt Actor-Critic Editing) for prompt optimization (https://aclanthology.org/2024.findings-acl.436/). This technique improves the quality and relevance of generated requirements by:
+## Architecture
 
-- Using multiple "actors" to generate candidate outputs
-- Employing "critics" to evaluate these outputs and provide feedback
-- Iteratively refining prompts based on collected feedback
-- Measuring diversity to select the best performing prompt
+Synthline follows the two-phase paradigm of Software Product Line Engineering. A feature model is built once per domain; datasets are derived per generation run.
 
-The PACE approach helps create more diverse, accurate, and domain-specific requirements with minimal manual intervention.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/abdelkarim-elhajjami/synthline/main/docs/methodology.png" alt="Synthline methodology" width="750"/>
+</p>
 
-To use PACE:
-1. Select "PACE Optimization" in the prompt approach settings
-2. Configure the number of iterations and actor-critic pairs
-3. Click "Optimize Prompt" before generating data
+The generation pipeline translates valid FM configurations into prompts, optionally optimizes them via PACE, generates text through an LLM, and optionally verifies alignment with an NLI scorer.
 
-## Getting Started
+<p align="center">
+  <img src="https://raw.githubusercontent.com/abdelkarim-elhajjami/synthline/main/docs/architecture.png" alt="Synthline architecture" width="750"/>
+</p>
 
-### Prerequisites
+---
 
-- [Docker](https://www.docker.com/get-started) and Docker Compose
-- API Keys:
-  - [OpenAI API Key](https://platform.openai.com/) (for gpt-4.1-nano-2025-04-14)
-  - [DeepSeek API Key](https://www.deepseek.com/) (for DeepSeek models)
+## Installation
 
-### Installation
+```bash
+pip install synthline
+```
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/abdelkarim-elhajjami/Synthline.git
-   cd synthline
-   ```
+From source:
 
-2. Create environment files:
+```bash
+git clone https://github.com/abdelkarim-elhajjami/Synthline.git
+cd Synthline
+pip install -e .
+```
 
-   For the engine:
-   ```bash
-   # engine/.env
-   OPENAI_API_KEY=your_openai_api_key
-   DEEPSEEK_API_KEY=your_deepseek_api_key
-   ```
+## Quick Start
 
-3. Start the application using the provided script:
-   ```bash
-   ./deploy.sh
-   ```
+```python
+from synthline import Synthline
 
-4. Access the web interface at [http://localhost:3000](http://localhost:3000)
+sl = Synthline(
+    fm="path/to/fm.xml",
+    llm="openrouter/meta-llama/llama-3.3-70b-instruct",
+    glossary="path/to/glossary.yaml",  # optional
+)
 
-## Configuration Options
+# 1. Build prompts from feature selection (no LLM call)
+prompts = sl.build_prompts(
+    label="Security",
+    label_definition="Degree to which a product protects information and data.",
+    samples_per_prompt=50,
+    features={
+        "RequirementType": ["Quality"],
+        "Domain": ["Healthcare Information System"],
+        "AbstractionLevel": ["HighLevel", "DetailedLevel"],
+        "DescriptionType": ["ProseNL"],
+        "Context": ["Usage", "ITSystem"],
+        "Language": ["EN"],
+    },
+)
 
-Synthline offers various configuration options for generating requirements:
+# 2. Generate
+output = sl.generate(prompts=prompts, samples=1000)
 
-### Classification
+# 3. Export
+output.save("output/")       # samples.csv, generation_report.json, metadata.json, prompts.json
+df = output.to_dataframe()   # pandas DataFrame
+```
 
-- **Label**: The type/category of requirement
-- **Label Definition**: Description of what the label means
+### With PACE Optimization
 
-### Requirements Artifact
+```python
+optimized = sl.optimize(prompts, alpha=0.5, iterations=1, actors=4, candidates=2)
+output = sl.generate(prompts=optimized, samples=1000)
+```
 
-- **Specification Format**: NL, Constrained NL, Use Case, User Story
-- **Specification Level**: High, Detailed
-- **Stakeholder**: End Users, Business Managers, Developers, Regulatory Bodies
-- **Domain**: Application domain (e.g., Healthcare, Finance)
-- **Language**: Natural language (e.g., English, Spanish)
+### With Alignment Verification
 
-### Generator Settings
+```python
+output = sl.generate(prompts=prompts, samples=1000, verify=True, verify_threshold=0.6)
+```
 
-- **LLM**: Select the language model (gpt-4.1-nano-2025-04-14, DeepSeek)
-- **Temperature**: Controls randomness (0-2)
-- **Top P**: Controls diversity (0-1)
-- **Samples Per Prompt**: Number of samples in each LLM request
+### Async API
 
-### Output Settings
+Every method has an async counterpart: `abuild_prompts`, `aoptimize`, `agenerate`.
 
-- **Total Samples**: Total number of samples to generate
-- **File Format**: JSON or CSV output format
+---
 
-## Usage Guide
+## CLI
 
-1. **Configuration**: Set up your generation parameters in the web interface
-2. **Preview**: Preview the prompt that will be sent to the LLM
-3. **Generate**: Start the generation process
-4. **Download**: Get your generated samples as JSON or CSV 
+```bash
+# Validate a feature model
+synthline validate --fm fm.xml
+
+# Build and inspect prompts
+synthline build-prompts --fm fm.xml --label Security --label-def "..." --features features.yaml
+
+# Optimize prompts with PACE
+synthline optimize --fm fm.xml --llm openrouter/... --label Security --features features.yaml --output optimized/
+
+# Generate synthetic data
+synthline generate --fm fm.xml --llm openrouter/... --samples 1000 --verify --output out/
+
+# Generate from a config file
+synthline generate --config run.yaml --output out/
+```
+
+---
+
+## LLM Providers
+
+| Provider    | Prefix            | Environment variable |
+| ----------- | ----------------- | -------------------- |
+| OpenAI      | `openai/...`      | `OPENAI_API_KEY`     |
+| OpenRouter  | `openrouter/...`  | `OPENROUTER_API_KEY` |
+| Ollama      | `ollama/...`      | `OLLAMA_BASE_URL` (local) |
+| HuggingFace | `huggingface/...` | `HF_TOKEN`           |
+
+Keys can also be passed directly via `api_keys={"openrouter": "sk-or-..."}`.
+
+---
+
+## Web UI
+
+A browser-based interface is available on [Hugging Face Spaces](https://huggingface.co/spaces/karimelhajjami/synthline) or self-hosted with Docker.
+
+```bash
+git clone https://github.com/abdelkarim-elhajjami/Synthline.git && cd Synthline && ./dev.sh
+```
+
+---
+
+## Project Structure
+
+```
+synthline/          SDK package (pip install synthline)
+  core/             FM parser, resolver, generator, PACE, alignment verifier
+  utils/            Logger, parsing, progress tracking
+  client.py         Synthline class — build_prompts(), optimize(), generate()
+  types.py          PromptSet, Dataset
+  cli.py            CLI entry point
+server/             FastAPI + WebSocket server for the Web UI
+tests/              Unit and integration tests
+web/                Next.js frontend
+```
+
+## Citation
+
+```bibtex
+@software{synthline,
+  author = {El Hajjami, Abdelkarim},
+  title = {Synthline: Feature Model–Guided Synthetic Data Generator},
+  url = {https://github.com/abdelkarim-elhajjami/Synthline},
+  year = {2025},
+}
+```
+
+## License
+
+[Apache License 2.0](https://github.com/abdelkarim-elhajjami/synthline/blob/main/LICENSE)
