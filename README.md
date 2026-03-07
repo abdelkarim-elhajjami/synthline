@@ -1,42 +1,99 @@
 # Synthline
-Synthline is a Product Line approach for generating synthetic Requirements Engineering (RE) data using Large Language Models (LLMs). This repository contains the implementation code and datasets from our research paper "Synthline: A Product Line Approach for Synthetic Requirements Engineering Data Generation using Large Language Models".
 
-Synthline addresses the data scarcity challenge in Requirements Engineering by providing a systematic approach to generate synthetic data. Our framework leverages LLMs and a Feature Model to enable controlled generation of synthetic data for various RE use cases.
+Synthline is a tool for generating high-quality synthetic data for requirements engineering. It leverages large language models (LLMs) to create diverse, customizable requirement samples according to specified attributes.
+
+## Overview
+
+Synthline generates high-quality synthetic data for training and evaluating AI models in Requirements Engineering. It uses large language models (gpt-4.1-nano-2025-04-14, DeepSeek) to produce realistic requirements with configurable properties.
 
 ### Key Features
-- Product Line approach using Feature Models for systematic data generation
-- Support for multiple LLMs (GPT-4o and DeepSeek-V3)
-- Configurable generation parameters
-- Support for various requirement types, specification formats, and domains
-- Evaluation tools for data diversity and classifiers performance
 
-## Installation
-1. Clone the repository.
-2. Install required dependencies (requirements.txt). Note: Python 3.10 or higher is required.
+- **LLM-Powered Generation**: Using gpt-4.1-nano-2025-04-14 and DeepSeek models
+- **Highly Configurable**: Control all aspects of generated requirements
+- **Multiple Output Formats**: Export as JSON or CSV
+- **Web Interface**: Intuitive UI for configuration
 
-## Project Structure
-```
-synthline/
-├── src/                         # Source code
-│   ├── fm.py                    # Feature Model implementation 
-│   ├── generator.py             # Data generation logic
-│   ├── gui.py                   # GUI interface
-│   ├── llm_client.py            # LLM API client
-│   ├── output.py                # Output handling
-│   ├── promptline.py            # Prompt generation
-│   └── run.py                   # Main entry point
-│
-├── train_classifiers/           # Classifiers training and evaluation  
-│   ├── config.py                # Training configuration
-│   ├── data_processor.py        # Data processing utilities
-│   ├── evaluate_classifiers.py  # Classifiers evaluation
-│   ├── evaluate_diversity.py    # Diversity evaluation
-│   └── train.py                 # Classifiers training
-│
-├── output/                      # Generated datasets
-└── requirements.txt             # Project dependencies
-```
+## New Feature: PACE Prompt Optimization
 
-## Usage
-1. Configure your API keys in `src/run.py`.
-2. Run the Synthline GUI.
+Synthline now includes PACE (Prompt Actor-Critic Editing) for prompt optimization (https://aclanthology.org/2024.findings-acl.436/). This technique improves the quality and relevance of generated requirements by:
+
+- Using multiple "actors" to generate candidate outputs
+- Employing "critics" to evaluate these outputs and provide feedback
+- Iteratively refining prompts based on collected feedback
+- Measuring diversity to select the best performing prompt
+
+The PACE approach helps create more diverse, accurate, and domain-specific requirements with minimal manual intervention.
+
+To use PACE:
+1. Select "PACE Optimization" in the prompt approach settings
+2. Configure the number of iterations and actor-critic pairs
+3. Click "Optimize Prompt" before generating data
+
+## Getting Started
+
+### Prerequisites
+
+- [Docker](https://www.docker.com/get-started) and Docker Compose
+- API Keys:
+  - [OpenAI API Key](https://platform.openai.com/) (for gpt-4.1-nano-2025-04-14)
+  - [DeepSeek API Key](https://www.deepseek.com/) (for DeepSeek models)
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/abdelkarim-elhajjami/Synthline.git
+   cd synthline
+   ```
+
+2. Create environment files:
+
+   For the engine:
+   ```bash
+   # engine/.env
+   OPENAI_API_KEY=your_openai_api_key
+   DEEPSEEK_API_KEY=your_deepseek_api_key
+   ```
+
+3. Start the application using the provided script:
+   ```bash
+   ./deploy.sh
+   ```
+
+4. Access the web interface at [http://localhost:3000](http://localhost:3000)
+
+## Configuration Options
+
+Synthline offers various configuration options for generating requirements:
+
+### Classification
+
+- **Label**: The type/category of requirement
+- **Label Definition**: Description of what the label means
+
+### Requirements Artifact
+
+- **Specification Format**: NL, Constrained NL, Use Case, User Story
+- **Specification Level**: High, Detailed
+- **Stakeholder**: End Users, Business Managers, Developers, Regulatory Bodies
+- **Domain**: Application domain (e.g., Healthcare, Finance)
+- **Language**: Natural language (e.g., English, Spanish)
+
+### Generator Settings
+
+- **LLM**: Select the language model (gpt-4.1-nano-2025-04-14, DeepSeek)
+- **Temperature**: Controls randomness (0-2)
+- **Top P**: Controls diversity (0-1)
+- **Samples Per Prompt**: Number of samples in each LLM request
+
+### Output Settings
+
+- **Total Samples**: Total number of samples to generate
+- **File Format**: JSON or CSV output format
+
+## Usage Guide
+
+1. **Configuration**: Set up your generation parameters in the web interface
+2. **Preview**: Preview the prompt that will be sent to the LLM
+3. **Generate**: Start the generation process
+4. **Download**: Get your generated samples as JSON or CSV 
