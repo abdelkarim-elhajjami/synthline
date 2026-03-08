@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -11,10 +10,18 @@ from typing import Any, Dict, Optional
 import yaml
 
 
+def _progress_bar(progress: float, message: str, *, width: int = 30) -> str:
+    """Format a single-line progress bar: [████████░░░░░░] 54% message."""
+    pct = max(0.0, min(100.0, progress))
+    filled = int(width * pct / 100)
+    bar = "█" * filled + "░" * (width - filled)
+    return f"\r  [{bar}] {pct:3.0f}% {message}"
+
+
 def main(argv: Optional[list] = None) -> None:
     parser = argparse.ArgumentParser(
         prog="synthline",
-        description="Synthline — constrained LLM-based synthetic data generation",
+        description="Synthline — Feature Model–Guided Synthetic Data Generator",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -134,8 +141,14 @@ def _cmd_optimize(args: argparse.Namespace) -> None:
     )
     print(f"Built {len(prompts)} atomic prompt(s). Optimizing...")
 
+    last_pct = [-1]
+
     async def _on_progress(progress: float, message: str) -> None:
-        print(f"\r  [{progress:5.1f}%] {message}", end="", flush=True)
+        pct = int(progress)
+        if pct == last_pct[0]:
+            return
+        last_pct[0] = pct
+        print(_progress_bar(progress, message), end="", flush=True)
 
     optimized = asyncio.run(
         sl.aoptimize(
@@ -179,8 +192,14 @@ def _cmd_generate(args: argparse.Namespace) -> None:
 
     sl = _create_client(cfg)
 
+    last_pct = [-1]
+
     async def _on_progress(progress: float, message: str) -> None:
-        print(f"\r  [{progress:5.1f}%] {message}", end="", flush=True)
+        pct = int(progress)
+        if pct == last_pct[0]:
+            return
+        last_pct[0] = pct
+        print(_progress_bar(progress, message), end="", flush=True)
 
     output = asyncio.run(
         sl.agenerate(

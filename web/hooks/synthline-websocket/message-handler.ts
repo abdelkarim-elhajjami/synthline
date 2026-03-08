@@ -1,4 +1,4 @@
-import { AtomicPrompt, Results } from "@/app/types";
+import { AtomicPrompt, GenerationOutput } from "@/app/types";
 import { Dispatch, SetStateAction } from "react";
 
 import { OperationType, UiError } from "./types";
@@ -13,7 +13,7 @@ interface MessageHandlerDeps {
     setOptimizedAtomicPrompts: (value: AtomicPrompt[]) => void;
     setCurrentPromptIndex: (value: number) => void;
     setIsGenerating: (value: boolean) => void;
-    setResults: (value: Results | null) => void;
+    setOutput: (value: GenerationOutput | null) => void;
     setStatus: (value: string) => void;
     setUiError: (value: UiError | null) => void;
     toUserFriendlyError: (rawMessage: string) => string;
@@ -119,10 +119,10 @@ export function createMessageHandler(deps: MessageHandlerDeps) {
                 deps.setIsGenerating(false);
                 deps.setProgress(100);
                 deps.clearActiveOperationId("generation", data.operation_id);
-                deps.setResults({
+                deps.setOutput({
                     samples: data.samples,
                     output_content: data.output_content,
-                    report: data.report,
+                    metadata: data.metadata,
                 });
                 deps.setStatus("Generation complete.");
                 break;

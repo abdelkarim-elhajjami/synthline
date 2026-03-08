@@ -19,7 +19,6 @@ def pace_instance(mock_llm, mock_logger):
     return PACE(mock_llm, mock_logger)
 
 
-@pytest.mark.asyncio
 def test_optimize_batch_flow(pace_instance, mock_llm):
     """Test the high-level batch optimization flow."""
     import asyncio
@@ -43,7 +42,7 @@ def test_optimize_batch_flow(pace_instance, mock_llm):
             "top_p": 1.0,
         }
 
-        actor_response = '["As a user, I want 2FA enabled to secure my account.", "As an admin, I want to enforce password complexity."]'
+        actor_response = '{"samples": ["As a user, I want 2FA enabled to secure my account.", "As an admin, I want to enforce password complexity."]}'
         critic_response = "Critique: The stories lack acceptance criteria."
         update_response = "Write a user story for login including acceptance criteria"
 
@@ -76,7 +75,7 @@ def test_evaluate_prompt_logic(pace_instance):
     pace_instance._diversity_score = MagicMock(return_value=0.65)
 
     features = {"pace_alpha": 0.0}
-    raw_completion = '["Requirement 1", "Requirement 2"]'
+    raw_completion = '{"samples": ["Requirement 1", "Requirement 2"]}'
     score = pace_instance._evaluate_prompt([raw_completion], samples_per_prompt=2, features=features)
     assert score == pytest.approx(0.65)
 
@@ -86,7 +85,6 @@ def test_evaluate_prompt_logic(pace_instance):
     assert score_invalid == 0.0
 
 
-@pytest.mark.asyncio
 def test_update_prompt_handles_failure(pace_instance, mock_llm, mock_logger):
     import asyncio
 
@@ -100,7 +98,6 @@ def test_update_prompt_handles_failure(pace_instance, mock_llm, mock_logger):
     asyncio.run(run())
 
 
-@pytest.mark.asyncio
 def test_optimize_batch_fails_fast_on_llm_error(pace_instance):
     import asyncio
 
@@ -133,7 +130,7 @@ def test_evaluate_prompt_uses_weighted_diversity_and_alignment(mock_llm, mock_lo
     pace = PACE(mock_llm, mock_logger, align_scorer=align_scorer)
     pace._diversity_score = MagicMock(return_value=0.6)
 
-    raw_completion = '["A short requirement", "A different requirement"]'
+    raw_completion = '{"samples": ["A short requirement", "A different requirement"]}'
     features = {
         "pace_alpha": 0.25,
         "__fm_constraints__": [{"label": "Language", "value": "English"}],
@@ -155,7 +152,7 @@ def test_evaluate_prompt_requires_align_scorer_for_non_diversity_only(mock_llm, 
 
     with pytest.raises(ValueError, match="requires AlignScorer"):
         pace._evaluate_prompt(
-            raw_completions=['["Requirement A", "Requirement B"]'],
+            raw_completions=['{"samples": ["Requirement A", "Requirement B"]}'],
             samples_per_prompt=2,
             features=features,
         )
@@ -173,7 +170,7 @@ def test_evaluate_prompt_skips_alignment_when_alpha_zero(mock_llm, mock_logger):
     }
 
     score = pace._evaluate_prompt(
-        raw_completions=['["Requirement A", "Requirement B"]'],
+        raw_completions=['{"samples": ["Requirement A", "Requirement B"]}'],
         samples_per_prompt=2,
         features=features,
     )
@@ -194,7 +191,7 @@ def test_evaluate_prompt_skips_diversity_when_alpha_one(mock_llm, mock_logger):
     }
 
     score = pace._evaluate_prompt(
-        raw_completions=['["Requirement A", "Requirement B"]'],
+        raw_completions=['{"samples": ["Requirement A", "Requirement B"]}'],
         samples_per_prompt=2,
         features=features,
     )

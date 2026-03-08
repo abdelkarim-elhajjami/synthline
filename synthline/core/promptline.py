@@ -1,50 +1,28 @@
 """
 Prompt manager for Synthline.
-Builds prompts for LLM calls and manages PACE optimization.
+Builds parameterized prompts from FM-derived feature constraints.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from synthline.core.constants import OPERATING_FIELDS, extract_fm_constraints
+from synthline.core.constants import LABEL_FIELDS, OPERATING_FIELDS, extract_fm_constraints
 from synthline.core.fm_resolver import FMResolver
 from synthline.core.fm_parser import FM
-from synthline.core.align_scorer import AlignScorer
-from synthline.core.llm import LLMClient
-from synthline.core.pace import PACE
-from synthline.utils.logger import Logger
 
 
 class Promptline:
-    """Builds parameterized and optionally optimized prompts for data generation."""
-
-    _SINGLE_SUFFIX_TEMPLATE = "\n\nReturn only the raw {artefact} text. No additional text or formatting."
-    _MULTI_SUFFIX_TEMPLATE = """\n\nFormat your completion as a JSON array of strings, e.g.:
-[
-  "First {artefact} text goes here.",
-  "Second {artefact} text goes here."
-]
-
-Each string must contain only the raw {artefact} text.
-Include only the JSON array. No additional text."""
+    """Builds parameterized prompts for data generation."""
 
     def __init__(
         self,
-        llm_client: LLMClient,
-        logger: Logger,
         fm: FM,
         glossary: Optional[Dict[str, str]] = None,
-        align_scorer: Optional[AlignScorer] = None,
     ):
-        """Initialize the promptline manager."""
-        self._llm = llm_client
-        self._logger = logger
         self._fm = fm
         self._expander = FMResolver(fm=fm)
         self._glossary = glossary or {}
         self._glossary_lookup = {str(key).lower(): str(value) for key, value in self._glossary.items()}
-        self._align_scorer = align_scorer
-        self._pace = PACE(llm_client=llm_client, logger=logger)
 
     def get_atomic_configurations(self, features: Dict[str, Any]) -> List[Dict[str, Any]]:
         fm_configuration = features.get("fm_configuration")
@@ -54,7 +32,8 @@ Include only the JSON array. No additional text."""
         base = {
             key: value
             for key, value in features.items()
-            if key not in OPERATING_FIELDS and not str(key).startswith("__")
+            if (key not in OPERATING_FIELDS or key in LABEL_FIELDS)
+            and not str(key).startswith("__")
         }
         expanded = self._expander.resolve(fm_configuration)
         configs = []
@@ -67,31 +46,30 @@ Include only the JSON array. No additional text."""
     def build(self, features: Dict[str, Any], *, samples_per_prompt: Optional[int] = None) -> str:
         """Build a generic prompt based on FM-derived constraints."""
         if samples_per_prompt is None:
-            samples_per_prompt = int(features.get("samples_per_prompt", 1) or 1)
-        is_multi = samples_per_prompt > 1
+            samples_per_prompt = max(1, int(features.get("samples_per_prompt") or 1))
+        plural = samples_per_prompt > 1
 
         artefact_singular = self._fm.artefact_type.strip() or "artefact"
         artefact_plural = self._pluralize(artefact_singular)
 
-        if is_multi:
+        if plural:
             lines = [
                 f"Generate {samples_per_prompt} diverse {artefact_plural.lower()} satisfying the following constraints:"
             ]
         else:
             lines = [f"Generate one {artefact_singular.lower()} satisfying the following constraints:"]
 
-        # Prepend classification context if present
-        cls_label = str(features.get("classification_label", "")).strip()
-        cls_def = str(features.get("classification_label_def", "")).strip()
+        label = str(features.get("classification_label", "")).strip()
+        label_def = str(features.get("classification_label_def", "")).strip()
 
         constraints = self._extract_constraints(features)
 
         all_lines: List[Dict[str, Any]] = []
-        if cls_label:
-            cls_text = cls_label
-            if cls_def:
-                cls_text += f" — {cls_def}"
-            all_lines.append({"label": "ClassificationLabel", "value": cls_text, "raw_values": [cls_label]})
+        if label:
+            label_text = label
+            if label_def:
+                label_text += f" — {label_def}"
+            all_lines.append({"label": "ClassificationLabel", "value": label_text, "raw_values": [label]})
 
         all_lines.extend(constraints)
 
@@ -106,10 +84,7 @@ Include only the JSON array. No additional text."""
                 else:
                     lines.append(f"{idx}. {label}: {value}.")
 
-        artefact_label = artefact_singular.lower()
-        suffix_template = self._MULTI_SUFFIX_TEMPLATE if is_multi else self._SINGLE_SUFFIX_TEMPLATE
-        suffix = suffix_template.format(artefact=artefact_label)
-        return "\n".join(lines) + suffix
+        return "\n".join(lines)
 
     def _extract_constraints(self, features: Dict[str, Any]) -> List[Dict[str, Any]]:
         formatted = []
@@ -170,34 +145,11 @@ Include only the JSON array. No additional text."""
 
     def get_atomic_prompts(self, features: Dict[str, Any]) -> List[Dict[str, Any]]:
         atomic_configs = self.get_atomic_configurations(features)
-        spp = int(features.get("samples_per_prompt", 1) or 1)
+        spp = max(1, int(features.get("samples_per_prompt") or 1))
         atomic_prompts = []
         for config in atomic_configs:
             prompt = self.build(config, samples_per_prompt=spp)
             atomic_prompts.append({"config": config, "prompt": prompt})
         return atomic_prompts
-
-    async def optimize_batch(
-        self,
-        atomic_configs,
-        features,
-        progress_callback=None,
-        prompt_update_callback=None,
-        api_keys=None,
-    ):
-        pace_alpha = float(features.get("pace_alpha", 0.5))
-        self._pace.set_align_scorer(
-            self._align_scorer if pace_alpha > 0.0 else None
-        )
-        return await self._pace.optimize_batch(
-            atomic_configs=atomic_configs,
-            features=features,
-            progress_callback=progress_callback,
-            n_iterations=int(features.get("pace_iterations")),
-            n_actors=int(features.get("pace_actors")),
-            n_candidates=int(features.get("pace_candidates")),
-            prompt_update_callback=prompt_update_callback,
-            api_keys=api_keys,
-        )
 
 

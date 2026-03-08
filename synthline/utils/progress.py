@@ -3,19 +3,18 @@ Progress tracking utilities for asynchronous processes.
 """
 from typing import Callable, Optional, Awaitable
 
-ProgressCallback = Optional[Callable[[float], Awaitable[None]]]
+ProgressFn = Optional[Callable[[float], Awaitable[None]]]
+"""Internal 1-param progress callback: async (progress: float) -> None.
+
+The public SDK callback (2-param with message) lives in synthline.types.
+"""
+
 
 async def track_progress(
-    callback: ProgressCallback,
-    progress: float
+    callback: ProgressFn,
+    progress: float,
 ) -> None:
-    """
-    Call the async progress callback if provided.
-
-    Args:
-        callback: The async progress callback function
-        progress: Progress value from 0 to 100
-    """
+    """Invoke callback if provided."""
     if not callback:
         return
 

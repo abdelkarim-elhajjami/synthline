@@ -6,15 +6,14 @@ import { Button } from "@/components/ui/button";
 import { ClassificationSection } from "@/components/sections/ClassificationSection";
 import { FeatureModelSection } from "@/components/sections/FeatureModelSection";
 import { ArtefactSection } from "@/components/sections/ArtefactSection";
-import { GeneratorSection } from "@/components/sections/GeneratorSection";
-import { OutputSection } from "@/components/sections/OutputSection";
-import { ResultsDisplay } from "@/components/ResultsDisplay";
+import { GenerationSection } from "@/components/sections/GenerationSection";
+import { OutputDisplay } from "@/components/OutputDisplay";
 import { SynthlineProvider, useSynthline } from "@/context/SynthlineContext";
 
 function SynthlineContent() {
   const {
     uiError,
-    results,
+    output,
     status,
     progress,
     isGenerating,
@@ -94,11 +93,7 @@ function SynthlineContent() {
 
               <div className="elegant-divider"></div>
 
-              <GeneratorSection />
-
-              <div className="elegant-divider"></div>
-
-              <OutputSection />
+              <GenerationSection />
 
               <div className="space-y-4 pt-6">
                 <Button
@@ -126,10 +121,10 @@ function SynthlineContent() {
                 )}
               </div>
 
-              {results && (
+              {output && (
                 <div className="animate-in slide-in-from-bottom-10 fade-in duration-500">
-                  <ResultsDisplay
-                    results={results}
+                  <OutputDisplay
+                    output={output}
                     status={status}
                     downloadFilename={
                       `${(formData.classification_label || 'output').trim().replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_${formData.total_samples || 0}_${new Date().toISOString().split('T')[0]}`

@@ -7,7 +7,7 @@ from synthline.core.align_verifier import AlignVerifier
 from synthline.core.fm_parser import FM
 from synthline.core.generator import Generator
 from synthline.core.llm import LLMClient
-from synthline.core.output_handler import OutputHandler
+from synthline.core.pace import PACE
 from synthline.core.promptline import Promptline
 from utils.ctx import SystemContext
 from synthline.utils.logger import Logger
@@ -27,8 +27,8 @@ class Dependencies:
         self._features = None
         self._llm_client: Optional[LLMClient] = None
         self._promptline: Optional[Promptline] = None
-        self._output_handler: Optional[OutputHandler] = None
         self._generator: Optional[Generator] = None
+        self._pace: Optional[PACE] = None
         self._align_scorer: Optional[AlignScorer] = None
         self._align_verifier: Optional[AlignVerifier] = None
         self._system_ctx = _global_system_ctx
@@ -155,14 +155,14 @@ class Dependencies:
     @property
     def promptline(self) -> Promptline:
         if not self._promptline:
-            self._promptline = Promptline(
-                llm_client=self.llm_client,
-                logger=self.logger,
-                fm=self.fm,
-                glossary=self.glossary,
-                align_scorer=self.align_scorer,
-            )
+            self._promptline = Promptline(fm=self.fm, glossary=self.glossary)
         return self._promptline
+
+    @property
+    def pace(self) -> PACE:
+        if not self._pace:
+            self._pace = PACE(llm_client=self.llm_client, logger=self.logger)
+        return self._pace
 
     @property
     def glossary(self) -> dict:
@@ -191,12 +191,6 @@ class Dependencies:
                 )
                 self._glossary = {}
         return self._glossary
-        
-    @property
-    def output_handler(self) -> OutputHandler:
-        if not self._output_handler:
-            self._output_handler = OutputHandler(logger=self.logger)
-        return self._output_handler
         
     @property
     def generator(self) -> Generator:

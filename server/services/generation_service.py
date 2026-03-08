@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from dependencies import Dependencies
 from synthline._runtime import runtime_from_deps
 from synthline.client import Synthline
+from synthline.types import PromptEntry, PromptSet
 from utils.websocket import send_to_connection
 
 
@@ -36,28 +37,51 @@ async def run_generation(
             api_keys=api_keys,
         )
 
-        # Build prompts (Web UI sends fm_configuration in internal format)
-        prompts = await sl.abuild_prompts(
-            label=str(features.get("classification_label", "")),
-            label_definition=str(features.get("classification_label_def", "")),
-            samples_per_prompt=int(features.get("samples_per_prompt", 1)),
-            features=features,
-            _raw_fm_configuration=True,
-        )
-
-        # Optimize if PACE is enabled
-        if str(features.get("prompt_approach", "")).upper() == "PACE":
-            prompts = await sl.aoptimize(
-                prompts,
-                alpha=float(features.get("pace_alpha", 0.5)),
-                iterations=int(features.get("pace_iterations", 1)),
-                actors=int(features.get("pace_actors", 4)),
-                candidates=int(features.get("pace_candidates", 2)),
+        if features.get("optimized_atomic_prompts"):
+            entries = [
+                PromptEntry(
+                    prompt=p["optimized_prompt"],
+                    config=p["config"],
+                    score=p.get("pace_score"),
+                )
+                for p in features["optimized_atomic_prompts"]
+            ]
+            prompts = PromptSet(
+                entries=entries,
+                label=str(features.get("classification_label", "")),
+                label_definition=str(features.get("classification_label_def", "")),
+                samples_per_prompt=int(features.get("samples_per_prompt", 1)),
+                optimized=True,
+                base_features={
+                    "fm_configuration": features.get("fm_configuration"),
+                    "classification_label": str(features.get("classification_label", "")),
+                    "classification_label_def": str(features.get("classification_label_def", "")),
+                    "samples_per_prompt": int(features.get("samples_per_prompt", 1)),
+                    "llm": str(features.get("llm", "")),
+                    "temperature": float(features.get("temperature", 1.0)),
+                    "top_p": float(features.get("top_p", 1.0)),
+                },
+            )
+        else:
+            prompts = sl.build_prompts(
+                label=str(features.get("classification_label", "")),
+                label_definition=str(features.get("classification_label_def", "")),
+                samples_per_prompt=int(features.get("samples_per_prompt", 1)),
+                features=features,
+                _raw_fm_configuration=True,
             )
 
-        # Generate
+            if str(features.get("prompt_approach", "")).upper() == "PACE":
+                prompts = await sl.aoptimize(
+                    prompts,
+                    alpha=float(features.get("pace_alpha", 0.5)),
+                    iterations=int(features.get("pace_iterations", 1)),
+                    actors=int(features.get("pace_actors", 4)),
+                    candidates=int(features.get("pace_candidates", 2)),
+                )
+
         total_samples = int(features.get("total_samples", 0))
-        result = await sl.agenerate(
+        dataset = await sl.agenerate(
             prompts,
             samples=total_samples,
             verify=align_verify,
@@ -66,16 +90,15 @@ async def run_generation(
             on_verification=_ws_verification_callback(deps, connection_id, operation_id),
         )
 
-        # Send success via WebSocket
         if _is_active(deps, connection_id, operation_id):
             await send_to_connection(
                 system_ctx=deps.system_ctx,
                 connection_id=connection_id,
                 payload={
                     "type": "generation_complete",
-                    "samples": result.samples,
-                    "output_content": result.to_csv(),
-                    "report": result.report,
+                    "samples": dataset.samples,
+                    "output_content": dataset.to_csv(),
+                    "metadata": dataset.metadata,
                     "operation": "generation",
                     "operation_id": operation_id,
                 },

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 
-import { AtomicPrompt, Results, FormData } from "@/app/types";
+import { AtomicPrompt, GenerationOutput, FormData } from "@/app/types";
 import { toUserFriendlyError } from "@/hooks/synthline-websocket/error-utils";
 import { runGenerateAction } from "@/hooks/synthline-websocket/generate-action";
 import { createMessageHandler } from "@/hooks/synthline-websocket/message-handler";
@@ -34,7 +34,7 @@ export function useSynthlineWebSocket({ formData, validateForm, apiKeys, fmVersi
 
     // Generation State
     const [isGenerating, setIsGenerating] = useState(false);
-    const [results, setResults] = useState<Results | null>(null);
+    const [output, setOutput] = useState<GenerationOutput | null>(null);
 
     const activeOperationIdsRef = useRef<Record<OperationType, string | null>>({
         generation: null,
@@ -68,7 +68,7 @@ export function useSynthlineWebSocket({ formData, validateForm, apiKeys, fmVersi
         setOptimizedAtomicPrompts([]);
         setCurrentPromptIndex(0);
         setIsGenerating(false);
-        setResults(null);
+        setOutput(null);
         setActiveOperationId("generation", null);
         setActiveOperationId("optimization", null);
     };
@@ -83,7 +83,7 @@ export function useSynthlineWebSocket({ formData, validateForm, apiKeys, fmVersi
         setOptimizedAtomicPrompts,
         setCurrentPromptIndex,
         setIsGenerating,
-        setResults,
+        setOutput,
         setStatus,
         setUiError,
         toUserFriendlyError,
@@ -119,7 +119,7 @@ export function useSynthlineWebSocket({ formData, validateForm, apiKeys, fmVersi
             wsReady,
             setUiError,
             setIsOptimizingPrompt,
-            setResults,
+            setOutput,
             setProgress,
             setStatus,
             toUserFriendlyError,
@@ -146,7 +146,7 @@ export function useSynthlineWebSocket({ formData, validateForm, apiKeys, fmVersi
                 score: promptData.score,
             })),
             setUiError,
-            setResults,
+            setOutput,
             setIsGenerating,
             setStatus,
             setProgress,
@@ -164,7 +164,7 @@ export function useSynthlineWebSocket({ formData, validateForm, apiKeys, fmVersi
         currentPrompt,
         isGenerating,
         isOptimizingPrompt,
-        results,
+        output,
         optimizationSuccess,
         isPromptOptimized,
         atomicPrompts,

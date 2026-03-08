@@ -4,7 +4,7 @@ import { createContext, useContext, ReactNode, useState, useCallback, useMemo } 
 import { useSynthlineForm } from '@/hooks/useSynthlineForm';
 import { useSynthlineWebSocket } from '@/hooks/useSynthlineWebSocket';
 import { useModelFetcher, GroupedModels } from '@/hooks/useModelFetcher';
-import { FormData, Results, AtomicPrompt, FMDocument, FMNode } from '@/app/types';
+import { FormData, GenerationOutput, AtomicPrompt, FMDocument, FMNode } from '@/app/types';
 import { UiError } from '@/hooks/synthline-websocket/types';
 import { useFM } from '@/hooks/useFM';
 
@@ -33,7 +33,7 @@ interface SynthlineContextType {
     status: string;
     uiError: UiError | null;
     isGenerating: boolean;
-    results: Results | null;
+    output: GenerationOutput | null;
 
     isOptimizingPrompt: boolean;
     isPromptOptimized: boolean;

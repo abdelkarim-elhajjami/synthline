@@ -12,7 +12,6 @@ def mock_deps():
     deps = MagicMock()
     deps.promptline = MagicMock()
     deps.generator = MagicMock()
-    deps.output_handler = MagicMock()
     deps.system_ctx = MagicMock()
     deps.logger = MagicMock()
     

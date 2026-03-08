@@ -8,13 +8,10 @@ from synthline.core.align_scorer import AlignScorer
 from synthline.core.constants import extract_fm_constraints
 from synthline.core.llm import LLMClient
 from synthline.utils.logger import Logger
+from synthline.core.schemas import samples_schema
 from synthline.utils.parsing import parse_completion
-from synthline.utils.progress import ProgressCallback, track_progress
-
-PromptUpdateCallback = Optional[
-    Callable[[str, float, int, int, int, int], Awaitable[None]]
-]
-"""(prompt, score, iteration, n_iterations, atomic_config_index, total_configs) -> None"""
+from synthline.types import PromptUpdateCallback
+from synthline.utils.progress import ProgressFn, track_progress
 
 
 class PACE:
@@ -38,10 +35,11 @@ class PACE:
         self,
         atomic_configs: List[Dict[str, Any]],
         features: Dict[str, Any],
-        progress_callback: ProgressCallback = None,
-        n_iterations: Optional[int] = None,
-        n_actors: Optional[int] = None,
-        n_candidates: Optional[int] = None,
+        *,
+        n_iterations: int,
+        n_actors: int,
+        n_candidates: int,
+        progress_callback: ProgressFn = None,
         prompt_update_callback: PromptUpdateCallback = None,
         api_keys: Optional[Dict[str, str]] = None
     ) -> List[Tuple[str, float, Dict[str, Any]]]:
@@ -52,7 +50,6 @@ class PACE:
         completed_iterations = 0
         total_iterations = total_configs * n_iterations
 
-        # Function to update progress when an iteration completes
         async def update_progress():
             nonlocal completed_iterations
             completed_iterations += 1
@@ -115,12 +112,13 @@ class PACE:
 
     async def _optimize_atomic_prompt(
         self,
+        *,
         features: Dict[str, Any],
-        progress_callback: ProgressCallback = None,
+        n_iterations: int,
+        n_actors: int,
+        n_candidates: int,
+        progress_callback: Optional[Callable[[], Awaitable[None]]] = None,
         initial_prompt: Optional[str] = None,
-        n_iterations: Optional[int] = None,
-        n_actors: Optional[int] = None,
-        n_candidates: Optional[int] = None,
         prompt_update_callback: PromptUpdateCallback = None,
         atomic_config_index: Optional[int] = None,
         total_configs: Optional[int] = None,
@@ -224,10 +222,12 @@ class PACE:
     ) -> str:
         """Run the actor to generate synthetic samples based on the current prompt."""
         try:
+            spp = max(1, int(features.get("samples_per_prompt", 1)))
             completions = await self._llm.get_batch_completions(
                 prompts=[prompt],
                 features=features,
-                api_keys=api_keys
+                api_keys=api_keys,
+                response_format=samples_schema(spp),
             )
             return completions[0]
 
@@ -253,14 +253,13 @@ class PACE:
         critique_prompt = f"""Instruction:
 "{prompt}"
 
-Output:
+Output ({samples_per_prompt} items):
 {action}
 
 Verify that:
-1. The output is a valid JSON array of exactly {samples_per_prompt} strings.
-2. Each artefact satisfies:
+1. Each item satisfies:
 {constraints_text}
-3. The artefacts are semantically diverse to support downstream classifier generalization.
+2. The items are semantically diverse to support downstream classifier generalization.
 
 If the output falls short on any point, describe specifically how."""
 
@@ -290,7 +289,7 @@ If the output falls short on any point, describe specifically how."""
         self,
         current_prompt: str,
         feedback_list: List[str],
-        atomic_config: Dict[str, Any],
+        features: Dict[str, Any],
         initial_prompt: str,
         api_keys: Optional[Dict[str, str]] = None
     ) -> str:
@@ -309,14 +308,13 @@ Critiques:
 Rewrite the Current Instruction to address the Critiques, preserving from the Reference Instruction:
 - The sample count and artefact type
 - All constraints exactly as stated
-- The output format specification
 
 Return only the rewritten instruction."""
 
         update_settings = {
-            'llm': atomic_config['llm'],
-            'temperature': atomic_config['temperature'],
-            'top_p': atomic_config['top_p'],
+            'llm': features['llm'],
+            'temperature': features['temperature'],
+            'top_p': features['top_p'],
         }
 
         try:

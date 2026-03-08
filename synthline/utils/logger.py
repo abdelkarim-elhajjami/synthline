@@ -23,38 +23,38 @@ class Logger:
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
         
-    def log_info(self, 
-                 message: str, 
-                 component: str, 
+    def log_info(self,
+                 message: str,
+                 component: str,
                  context: Optional[Dict[str, Any]] = None) -> None:
-        """
-        Log information to stdout.
-        """
         self._log("INFO", component, {
             "message": message,
             "context": context
         })
 
-    def log_error(self, 
-                 error_msg: str, 
-                 component: str, 
+    def log_warning(self,
+                   message: str,
+                   component: str,
+                   context: Optional[Dict[str, Any]] = None) -> None:
+        self._log("WARNING", component, {
+            "message": message,
+            "context": context
+        })
+
+    def log_error(self,
+                 message: str,
+                 component: str,
                  context: Optional[Dict[str, Any]] = None) -> None:
-        """
-        Log an error to stdout.
-        """
         self._log("ERROR", component, {
-            "error": error_msg,
+            "message": message,
             "context": context
         })
     
-    def log_prompt(self, 
+    def log_prompt(self,
                   prompt: str,
                   score: float,
                   event: str,
                   config: Dict[str, Any]) -> None:
-        """
-        Log prompt optimization events.
-        """
         if not self.debug_mode:
             return
             
@@ -72,15 +72,12 @@ class Logger:
             "config": config_preview,
         })
     
-    def log_conversation(self, 
-                        prompt: str, 
-                        completion: str, 
-                        model: str, 
-                        temperature: float, 
+    def log_conversation(self,
+                        prompt: str,
+                        completion: str,
+                        model: str,
+                        temperature: float,
                         top_p: float) -> None:
-        """
-        Log an LLM conversation.
-        """
         if not self.debug_mode:
             return
 
@@ -102,10 +99,12 @@ class Logger:
             "component": component,
             **data
         }
-        json_msg = json.dumps(log_entry, ensure_ascii=False)
+        json_msg = json.dumps(log_entry, ensure_ascii=False, default=str)
         
         if level == "ERROR":
             self._logger.error(json_msg)
+        elif level == "WARNING":
+            self._logger.warning(json_msg)
         elif level == "DEBUG":
             self._logger.debug(json_msg)
         else:

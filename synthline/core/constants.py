@@ -1,33 +1,67 @@
 """Shared constants and helpers for Synthline core modules."""
 from typing import Any, Dict, List, Tuple
 
-# Fields that control operation behavior rather than describing feature model data.
-# Used by Promptline, OutputHandler, and Logger to separate operational concerns
-# from FM-derived feature data.
-OPERATING_FIELDS = frozenset({
+# ---------------------------------------------------------------------------
+# Semantic field groups — each frozenset collects features dict keys that
+# belong to a single concern.  OPERATING_FIELDS is the union of all groups
+# and is the only set that downstream code (Promptline, Dataset, Logger)
+# should use to filter out non-FM-derived keys.
+# ---------------------------------------------------------------------------
+
+LLM_FIELDS = frozenset({
     "llm",
     "temperature",
     "top_p",
+})
+
+GENERATION_FIELDS = frozenset({
     "samples_per_prompt",
     "total_samples",
+})
+
+PACE_FIELDS = frozenset({
     "prompt_approach",
     "pace_iterations",
     "pace_actors",
     "pace_candidates",
     "pace_alpha",
+})
+
+ALIGNMENT_FIELDS = frozenset({
+    "align_verify",
+    "align_threshold",
+})
+
+LABEL_FIELDS = frozenset({
+    "classification_label",
+    "classification_label_def",
+})
+
+SESSION_FIELDS = frozenset({
     "connection_id",
     "operation_id",
+})
+
+INTERNAL_FIELDS = frozenset({
     "optimized_prompt",
     "optimized_atomic_prompts",
     "pace_score",
     "fm_configuration",
-    "align_verify",
-    "align_threshold",
     "prompt",
     "__fm_constraints__",
-    "classification_label",
-    "classification_label_def",
 })
+
+# Union of all groups — used by Promptline, Dataset, and Logger to separate
+# operational concerns from FM-derived feature data.
+OPERATING_FIELDS = (
+    LLM_FIELDS
+    | GENERATION_FIELDS
+    | PACE_FIELDS
+    | ALIGNMENT_FIELDS
+    | LABEL_FIELDS
+    | SESSION_FIELDS
+    | INTERNAL_FIELDS
+)
 
 
 def extract_fm_constraints(features: Dict[str, Any]) -> List[Tuple[str, Any]]:

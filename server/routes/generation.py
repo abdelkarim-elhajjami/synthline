@@ -32,14 +32,12 @@ async def start_generation(
     """Generate samples based on the provided configuration."""
     try:
         _ = deps.generator
-        _ = deps.output_handler
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
     if not deps.system_ctx.get_connection(request.connection_id):
         raise HTTPException(status_code=400, detail="WebSocket connection not found")
     
-    # Prepare clean features without operational concerns
     features = request.features
     align_verify = _validate_generation_features(features)
 

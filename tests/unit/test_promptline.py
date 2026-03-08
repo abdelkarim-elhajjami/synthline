@@ -1,24 +1,13 @@
 import pytest
-from unittest.mock import MagicMock
+from typing import Optional
 from pathlib import Path
 
 from synthline.core.fm_parser import FM, FMNode
-from synthline.core.fm_resolver import FMResolver
 from synthline.core.promptline import Promptline
 
 
-def _find_node(fm: FM, node_id: str) -> FMNode | None:
+def _find_node(fm: FM, node_id: str) -> Optional[FMNode]:
     return next((n for n in fm.iter_nodes() if n.id == node_id), None)
-
-
-@pytest.fixture
-def mock_llm():
-    return MagicMock()
-
-
-@pytest.fixture
-def mock_logger():
-    return MagicMock()
 
 
 @pytest.fixture
@@ -28,8 +17,8 @@ def fm_model():
 
 
 @pytest.fixture
-def promptline(mock_llm, mock_logger, fm_model):
-    return Promptline(mock_llm, mock_logger, fm_model)
+def promptline(fm_model):
+    return Promptline(fm=fm_model)
 
 
 def test_fm_parser_group_types_and_structure(fm_model):
@@ -152,4 +141,4 @@ def test_build_prompt_uses_artefact_type_and_constraints(promptline):
     assert "Generate 3 diverse requirements" in prompt
     assert "DescriptionType: ProseNL" in prompt
     assert "Language: English" in prompt
-    assert "JSON array" in prompt
+    # No format suffix — structured output (response_format) enforces JSON.

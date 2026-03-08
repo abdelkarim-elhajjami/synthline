@@ -1,19 +1,19 @@
 "use client"
 
 import { Button } from "@/components/ui/button";
-import { Results } from "@/app/types";
+import { GenerationOutput } from "@/app/types";
 
-interface ResultsDisplayProps {
-    results: Results;
+interface OutputDisplayProps {
+    output: GenerationOutput;
     status: string;
     downloadFilename: string;
 }
 
-export function ResultsDisplay({ results, status, downloadFilename }: ResultsDisplayProps) {
-    const runSuffix = `_${results.report.run_id}`;
+export function OutputDisplay({ output, status, downloadFilename }: OutputDisplayProps) {
+    const runSuffix = `_${output.metadata.run_id}`;
 
     const downloadCSV = () => {
-        const blob = new Blob([results.output_content], { type: 'text/csv' });
+        const blob = new Blob([output.output_content], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -24,12 +24,12 @@ export function ResultsDisplay({ results, status, downloadFilename }: ResultsDis
         URL.revokeObjectURL(url);
     };
 
-    const downloadReport = () => {
-        const blob = new Blob([JSON.stringify(results.report, null, 2)], { type: 'application/json' });
+    const downloadMetadata = () => {
+        const blob = new Blob([JSON.stringify(output.metadata, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${downloadFilename}${runSuffix}_report.json`;
+        a.download = `${downloadFilename}${runSuffix}_metadata.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -39,7 +39,7 @@ export function ResultsDisplay({ results, status, downloadFilename }: ResultsDis
     return (
         <div className="elegant-card p-6 mt-8">
             <div className="flex justify-between items-center">
-                <h3 className="section-heading text-xl">Results</h3>
+                <h3 className="section-heading text-xl">Output</h3>
                 <div className="flex items-center gap-2">
                     <Button
                         onClick={downloadCSV}
@@ -48,11 +48,11 @@ export function ResultsDisplay({ results, status, downloadFilename }: ResultsDis
                         Download CSV
                     </Button>
                     <Button
-                        onClick={downloadReport}
+                        onClick={downloadMetadata}
                         variant="outline"
                         className="rounded-lg transition-all"
                     >
-                        Download Report
+                        Download Metadata
                     </Button>
                 </div>
             </div>

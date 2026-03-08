@@ -4,9 +4,46 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional
 
 import pandas as pd
+
+from synthline.core.constants import OPERATING_FIELDS
+
+
+# ---------------------------------------------------------------------------
+# Callback type aliases (public SDK surface)
+# ---------------------------------------------------------------------------
+
+ProgressCallback = Optional[Callable[[float, str], Awaitable[None]]]
+"""async (progress_pct: float, message: str) -> None"""
+
+VerificationCallback = Optional[
+    Callable[[int, int, int, int, float], Awaitable[None]]
+]
+"""async (attempt, max_attempts, accepted_so_far, samples_needed, progress_pct) -> None"""
+
+PromptUpdateCallback = Optional[
+    Callable[[str, float, int, int, int, int], Awaitable[None]]
+]
+"""async (prompt, score, iteration, n_iterations, config_index, total_configs) -> None"""
+
+
+# ---------------------------------------------------------------------------
+# GenerationResult — internal return type from Generator.generate()
+# ---------------------------------------------------------------------------
+
+@dataclass
+class GenerationResult:
+    """Bundles raw samples with generation diagnostics.
+
+    Replaces the old pattern where Generator stored flags as mutable
+    instance state that callers had to read after calling ``generate()``.
+    """
+
+    samples: List[Dict[str, Any]]
+    fewer_samples_received: bool = False
+    parsing_degraded: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +82,7 @@ class PromptSet:
     label_definition: str = ""
     samples_per_prompt: int = 1
     optimized: bool = False
-    _features: Dict[str, Any] = field(default_factory=dict, repr=False)
+    base_features: Dict[str, Any] = field(default_factory=dict, repr=False)
 
     # -- sequence protocol --------------------------------------------------
 
@@ -76,7 +113,7 @@ class PromptSet:
         ``fm_configuration`` so the generator builds prompts from scratch.
         """
         base: Dict[str, Any] = {
-            **self._features,
+            **self.base_features,
             "llm": llm,
             "temperature": temperature,
             "top_p": top_p,
@@ -108,7 +145,7 @@ class PromptSet:
             "samples_per_prompt": self.samples_per_prompt,
             "optimized": self.optimized,
             "entries": [e.to_dict() for e in self.entries],
-            "_features": self._features,
+            "base_features": self.base_features,
         }
         out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -130,7 +167,7 @@ class PromptSet:
             label_definition=data.get("label_definition", ""),
             samples_per_prompt=data.get("samples_per_prompt", 1),
             optimized=data.get("optimized", False),
-            _features=data.get("_features", {}),
+            base_features=data.get("base_features", data.get("_features", {})),
         )
 
 
@@ -140,14 +177,9 @@ class PromptSet:
 
 @dataclass
 class Dataset:
-    """The output of a generation run.
-
-    Wraps the raw samples together with the generation report and run
-    metadata.  Provides convenience methods for export and inspection.
-    """
+    """Generated samples with run metadata."""
 
     samples: List[Dict[str, Any]]
-    report: Dict[str, Any]
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     # -- sequence protocol --------------------------------------------------
@@ -157,6 +189,25 @@ class Dataset:
 
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         return iter(self.samples)
+
+    # -- formatting ---------------------------------------------------------
+
+    @staticmethod
+    def format_sample(sample_text: str, atomic_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Format raw sample text and atomic config into a structured dictionary."""
+        sample: Dict[str, Any] = {"Text": sample_text}
+
+        label = atomic_config.get("classification_label", "")
+        if label:
+            sample["Label"] = label
+
+        for k, v in atomic_config.items():
+            if k not in OPERATING_FIELDS:
+                # Leaf name from dotted FM paths, e.g. "Root.X.Y" → "Y"
+                col_name = k.rsplit(".", 1)[-1] if "." in k else k
+                sample[col_name] = v
+
+        return sample
 
     # -- export -------------------------------------------------------------
 
@@ -171,36 +222,15 @@ class Dataset:
         return pd.DataFrame(self.samples)
 
     def save(self, path: str) -> None:
-        """Write artefacts to *path* directory.
-
-        Creates:
-          - ``samples.csv``
-          - ``generation_report.json``
-          - ``metadata.json``
-          - ``prompts.json``  (if report contains prompt data)
-        """
+        """Write ``data.csv`` and ``metadata.json`` to *path*."""
         out = Path(path)
         out.mkdir(parents=True, exist_ok=True)
 
-        # samples.csv
         csv_text = self.to_csv()
         if csv_text:
-            (out / "samples.csv").write_text(csv_text, encoding="utf-8")
+            (out / "data.csv").write_text(csv_text, encoding="utf-8")
 
-        # generation_report.json
-        (out / "generation_report.json").write_text(
-            json.dumps(self.report, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-
-        # metadata.json
         if self.metadata:
             (out / "metadata.json").write_text(
                 json.dumps(self.metadata, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
-
-        # prompts.json
-        prompts = self.report.get("prompts")
-        if prompts:
-            (out / "prompts.json").write_text(
-                json.dumps(prompts, indent=2, ensure_ascii=False), encoding="utf-8"
             )

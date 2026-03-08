@@ -4,33 +4,22 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from synthline.core.align_verifier import AlignVerifier
 from synthline.core.constants import OPERATING_FIELDS
 from synthline.core.fm_parser import FM
 
-from synthline._runtime import Runtime, create_runtime, runtime_from_deps
-from synthline.types import Dataset, PromptEntry, PromptSet
-
-
-# ---------------------------------------------------------------------------
-# Callback type aliases
-# ---------------------------------------------------------------------------
-
-ProgressCallback = Optional[Callable[[float, str], Awaitable[None]]]
-"""async (progress_pct: float, message: str) -> None"""
-
-VerificationCallback = Optional[
-    Callable[[int, int, int, int, float], Awaitable[None]]
-]
-"""async (attempt, max_attempts, accepted_so_far, samples_needed, progress_pct) -> None"""
-
-PromptUpdateCallback = Optional[
-    Callable[[str, float, int, int, int, int], Awaitable[None]]
-]
-"""async (prompt, score, iteration, n_iterations, config_index, total_configs) -> None"""
+from synthline._runtime import Runtime, create_runtime
+from synthline.types import (
+    Dataset,
+    ProgressCallback,
+    PromptEntry,
+    PromptSet,
+    PromptUpdateCallback,
+    VerificationCallback,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -127,34 +116,11 @@ class Synthline:
         _raw_fm_configuration: bool = False,
     ) -> PromptSet:
         """Build atomic prompts from a feature selection.  No LLM call."""
-        return asyncio.run(
-            self.abuild_prompts(
-                label=label,
-                label_definition=label_definition,
-                samples_per_prompt=samples_per_prompt,
-                features=features,
-                or_group_mode=or_group_mode,
-                _raw_fm_configuration=_raw_fm_configuration,
-            )
-        )
-
-    async def abuild_prompts(
-        self,
-        label: str,
-        label_definition: str,
-        samples_per_prompt: int,
-        features: Dict[str, Any],
-        *,
-        or_group_mode: Optional[Dict[str, str]] = None,
-        _raw_fm_configuration: bool = False,
-    ) -> PromptSet:
-        """Async version of :meth:`build_prompts`."""
         if _raw_fm_configuration:
-            # Web UI path: features dict already contains fm_configuration
-            internal = dict(features)
+            raw_features = dict(features)
         else:
             fm_configuration = _translate_features(self._runtime.fm, features, or_group_mode)
-            internal = {
+            raw_features = {
                 "fm_configuration": fm_configuration,
                 "classification_label": label,
                 "classification_label_def": label_definition,
@@ -164,7 +130,7 @@ class Synthline:
                 "top_p": self._top_p,
             }
 
-        atomic_prompts = self._runtime.promptline.get_atomic_prompts(internal)
+        atomic_prompts = self._runtime.promptline.get_atomic_prompts(raw_features)
 
         entries = [
             PromptEntry(prompt=ap["prompt"], config=ap["config"])
@@ -176,7 +142,7 @@ class Synthline:
             label_definition=label_definition,
             samples_per_prompt=samples_per_prompt,
             optimized=False,
-            _features=internal,
+            base_features=raw_features,
         )
 
     # ======================================================================
@@ -219,7 +185,7 @@ class Synthline:
         on_prompt_update: PromptUpdateCallback = None,
     ) -> PromptSet:
         """Async version of :meth:`optimize`."""
-        # Prepare atomic configs (same as optimization_service does)
+        # Rebuild atomic configs with embedded prompts
         atomic_configs: List[Dict[str, Any]] = []
         for entry in prompts.entries:
             config = dict(entry.config)
@@ -227,7 +193,7 @@ class Synthline:
             atomic_configs.append(config)
 
         features: Dict[str, Any] = {
-            **prompts._features,
+            **prompts.base_features,
             "llm": self._llm,
             "temperature": self._temperature,
             "top_p": self._top_p,
@@ -238,25 +204,27 @@ class Synthline:
             "prompt_approach": "PACE",
         }
 
-        # Wrap SDK callbacks into the format Promptline.optimize_batch expects
+        # Wrap progress callback to add message parameter
         _progress_cb = None
         if on_progress:
             async def _progress_cb(progress: float) -> None:
                 await on_progress(progress, "Optimizing prompts")
 
-        _prompt_update_cb = None
-        if on_prompt_update:
-            _prompt_update_cb = on_prompt_update
+        self._runtime.pace.set_align_scorer(
+            self._runtime.align_scorer if alpha > 0.0 else None
+        )
 
-        optimized_results = await self._runtime.promptline.optimize_batch(
+        optimized_results = await self._runtime.pace.optimize_batch(
             atomic_configs=atomic_configs,
             features=features,
             progress_callback=_progress_cb,
-            prompt_update_callback=_prompt_update_cb,
+            n_iterations=iterations,
+            n_actors=actors,
+            n_candidates=candidates,
+            prompt_update_callback=on_prompt_update,
             api_keys=self._api_keys,
         )
 
-        # Build new PromptSet with optimized prompts and scores
         entries = [
             PromptEntry(
                 prompt=optimized_prompt,
@@ -272,7 +240,7 @@ class Synthline:
             label_definition=prompts.label_definition,
             samples_per_prompt=prompts.samples_per_prompt,
             optimized=True,
-            _features=prompts._features,
+            base_features=prompts.base_features,
         )
 
     # ======================================================================
@@ -331,52 +299,45 @@ class Synthline:
                 await on_progress(displayed, "Generating samples")
 
         # --- generation --------------------------------------------------------
-        raw_samples = await self._runtime.generator.generate(
+        gen_result = await self._runtime.generator.generate(
             features=features,
             progress_callback=gen_progress_cb,
             api_keys=self._api_keys,
         )
+        raw_samples = gen_result.samples
 
         # --- verification (optional) -------------------------------------------
         warnings: List[str] = []
-        verification_block: Any = False
+        alignment_verification: Any = False
 
         if verify and raw_samples:
             if on_progress:
                 await on_progress(80.0, "Verifying alignment")
 
-            raw_samples, verification_block, vf_warnings = await self._run_verification_loop(
-                raw_samples=raw_samples,
-                features=features,
-                threshold=verify_threshold,
-                samples_needed=samples,
-                on_verification=on_verification,
+            raw_samples, alignment_verification, verification_warnings = (
+                await self._run_verification_loop(
+                    raw_samples=raw_samples,
+                    features=features,
+                    threshold=verify_threshold,
+                    samples_needed=samples,
+                    on_verification=on_verification,
+                )
             )
-            warnings.extend(vf_warnings)
+            warnings.extend(verification_warnings)
         else:
             deficit = max(samples - len(raw_samples), 0)
             if deficit > 0:
                 warnings.append("generation_deficit")
 
-        # --- format samples ----------------------------------------------------
+        # --- format & assemble -------------------------------------------------
         formatted = [
-            self._runtime.output_handler.format_sample(s["text"], s["config"])
+            Dataset.format_sample(s["text"], s["config"])
             for s in raw_samples
         ]
 
-        # --- report ------------------------------------------------------------
-        report = _build_report(
-            run_id=run_id,
-            features=features,
-            raw_samples=raw_samples,
-            requested=samples,
-            produced=len(raw_samples),
-            warnings=warnings,
-            verification_block=verification_block,
-        )
-
-        # --- metadata ----------------------------------------------------------
         metadata: Dict[str, Any] = {
+            "run_id": run_id,
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "llm": self._llm,
             "temperature": self._temperature,
             "top_p": self._top_p,
@@ -385,16 +346,20 @@ class Synthline:
             "verify": verify,
             "verify_threshold": verify_threshold if verify else None,
             "optimized": prompts.optimized,
+            "prompt_approach": features.get("prompt_approach", "default"),
             "duration_seconds": round(time.perf_counter() - started, 2),
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "alignment_verification": alignment_verification,
+            "prompts": _build_prompts_summary(raw_samples, features),
         }
+        if warnings:
+            metadata["warnings"] = list(warnings)
 
         if on_progress:
             await on_progress(100.0, "Complete")
 
-        return Dataset(samples=formatted, report=report, metadata=metadata)
+        return Dataset(samples=formatted, metadata=metadata)
 
-    # -- verification loop (extracted from generation_service) ---------------
+    # -- verification loop --------------------------------------------------
 
     async def _run_verification_loop(
         self,
@@ -459,7 +424,7 @@ class Synthline:
             })
 
             if len(all_accepted) >= samples_needed:
-                termination_reason = "quota_met"
+                termination_reason = "count_reached"
                 break
             if not rejected:
                 termination_reason = "no_rejected_remaining"
@@ -471,16 +436,17 @@ class Synthline:
             deficit = samples_needed - len(all_accepted)
             regen_features = dict(features)
             regen_features["total_samples"] = deficit
-            pending = await self._runtime.generator.generate(
+            regen_result = await self._runtime.generator.generate(
                 features=regen_features,
                 progress_callback=None,
                 api_keys=self._api_keys,
             )
+            pending = regen_result.samples
             total_generated += len(pending)
 
-            if self._runtime.generator.fewer_samples_received and "fewer_samples_received" not in warnings:
+            if regen_result.fewer_samples_received and "fewer_samples_received" not in warnings:
                 warnings.append("fewer_samples_received")
-            if self._runtime.generator.parsing_degraded and "parsing_degraded" not in warnings:
+            if regen_result.parsing_degraded and "parsing_degraded" not in warnings:
                 warnings.append("parsing_degraded")
             if not pending:
                 termination_reason = "generation_returned_empty"
@@ -490,7 +456,7 @@ class Synthline:
         if alignment_deficit > 0 and "verification_deficit" not in warnings:
             warnings.append("verification_deficit")
 
-        verification_block = _build_verification_block(
+        alignment_verification = _build_alignment_verification(
             requested=samples_needed,
             threshold=threshold,
             max_retries=AlignVerifier.MAX_RETRIES,
@@ -504,7 +470,7 @@ class Synthline:
             attempt_trace=attempt_trace,
             total_generated_across_retries=total_generated,
         )
-        return all_accepted, verification_block, warnings
+        return all_accepted, alignment_verification, warnings
 
 
 # ======================================================================
@@ -583,13 +549,14 @@ def _translate_features(
 
 
 # ======================================================================
-# Report building (extracted from generation_service)
+# Metadata helpers
 # ======================================================================
 
-def _build_prompts_block(
+def _build_prompts_summary(
     raw_samples: List[Dict[str, Any]],
     features: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
+    """Deduplicate raw samples by prompt and collect per-prompt metadata."""
     seen: Dict[str, Dict[str, Any]] = {}
     for sample in raw_samples:
         config = sample.get("config", {})
@@ -630,35 +597,7 @@ def _extract_constraint_features(config: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _build_report(
-    run_id: str,
-    features: Dict[str, Any],
-    raw_samples: List[Dict[str, Any]],
-    requested: int,
-    produced: int,
-    warnings: List[str],
-    verification_block: Any = False,
-) -> Dict[str, Any]:
-    report: Dict[str, Any] = {
-        "run_id": run_id,
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "alignment_verification": verification_block,
-        "setup": {
-            "model": features.get("llm", "unknown"),
-            "temperature": float(features.get("temperature", 0)),
-            "top_p": float(features.get("top_p", 0)),
-            "prompt_approach": features.get("prompt_approach", "default"),
-            "requested_samples": requested,
-            "produced_samples": produced,
-        },
-        "prompts": _build_prompts_block(raw_samples, features),
-    }
-    if warnings:
-        report["warnings"] = list(warnings)
-    return report
-
-
-def _build_verification_block(
+def _build_alignment_verification(
     requested: int,
     *,
     threshold: float,

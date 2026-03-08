@@ -1,4 +1,4 @@
-import { FormData, Results } from "@/app/types";
+import { FormData, GenerationOutput } from "@/app/types";
 import { getSessionId } from "@/lib/session";
 
 import { UiError } from "./types";
@@ -12,7 +12,7 @@ interface OptimizeActionParams {
     operationId: string;
     setUiError: (value: UiError | null) => void;
     setIsOptimizingPrompt: (value: boolean) => void;
-    setResults: (value: Results | null) => void;
+    setOutput: (value: GenerationOutput | null) => void;
     setProgress: (value: number) => void;
     setStatus: (value: string) => void;
     toUserFriendlyError: (raw: string) => string;
@@ -31,7 +31,7 @@ export async function runOptimizeAction(params: OptimizeActionParams): Promise<b
     }
 
     params.setIsOptimizingPrompt(true);
-    params.setResults(null);
+    params.setOutput(null);
     params.setUiError(null);
     params.setProgress(0);
     params.setStatus("Optimizing prompts");

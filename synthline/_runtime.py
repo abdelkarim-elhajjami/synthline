@@ -13,7 +13,7 @@ from synthline.core.align_verifier import AlignVerifier
 from synthline.core.fm_parser import FM
 from synthline.core.generator import Generator
 from synthline.core.llm import LLMClient
-from synthline.core.output_handler import OutputHandler
+from synthline.core.pace import PACE
 from synthline.core.promptline import Promptline
 from synthline.utils.logger import Logger
 
@@ -27,9 +27,9 @@ class Runtime:
     llm_client: LLMClient
     promptline: Promptline
     generator: Generator
+    pace: PACE
     align_scorer: AlignScorer
     align_verifier: AlignVerifier
-    output_handler: OutputHandler
     logger: Logger
 
 
@@ -75,22 +75,14 @@ def create_runtime(
         logger=logger,
     )
 
-    # --- Promptline & Generator ---
-    promptline = Promptline(
-        llm_client=llm_client,
-        logger=logger,
-        fm=fm,
-        glossary=glossary,
-        align_scorer=align_scorer,
-    )
+    # --- Promptline, PACE & Generator ---
+    promptline = Promptline(fm=fm, glossary=glossary)
+    pace = PACE(llm_client=llm_client, logger=logger)
     generator = Generator(
         llm=llm_client,
         promptline=promptline,
         logger=logger,
     )
-
-    # --- Output handler ---
-    output_handler = OutputHandler(logger=logger)
 
     return Runtime(
         fm=fm,
@@ -98,9 +90,9 @@ def create_runtime(
         llm_client=llm_client,
         promptline=promptline,
         generator=generator,
+        pace=pace,
         align_scorer=align_scorer,
         align_verifier=align_verifier,
-        output_handler=output_handler,
         logger=logger,
     )
 
@@ -117,9 +109,9 @@ def runtime_from_deps(deps: Any) -> Runtime:
         llm_client=deps.llm_client,
         promptline=deps.promptline,
         generator=deps.generator,
+        pace=deps.pace,
         align_scorer=deps.align_scorer,
         align_verifier=deps.align_verifier,
-        output_handler=deps.output_handler,
         logger=deps.logger,
     )
 

@@ -52,7 +52,7 @@ async def run_optimization(
         )
 
         # Build prompts (Web UI sends fm_configuration in internal format)
-        prompts = await sl.abuild_prompts(
+        prompts = sl.build_prompts(
             label=str(features.get("classification_label", "")),
             label_definition=str(features.get("classification_label_def", "")),
             samples_per_prompt=int(features.get("samples_per_prompt", 1)),
@@ -60,7 +60,6 @@ async def run_optimization(
             _raw_fm_configuration=True,
         )
 
-        # Optimize via PACE
         async def progress_callback(progress: float, message: str) -> None:
             await send_to_connection(
                 system_ctx=deps.system_ctx,

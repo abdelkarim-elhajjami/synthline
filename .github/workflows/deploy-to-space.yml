@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
@@ -54,24 +54,24 @@ jobs:
 
           # Generate HF Space README with required frontmatter
           cat > README.md << 'SPACE_README'
-          ---
-          title: Synthline
-          emoji: ⚡
-          colorFrom: purple
-          colorTo: yellow
-          sdk: docker
-          app_port: 7860
-          license: apache-2.0
-          ---
+---
+title: Synthline
+emoji: ⚡
+colorFrom: purple
+colorTo: yellow
+sdk: docker
+app_port: 7860
+license: apache-2.0
+---
 
-          # Synthline
+# Synthline
 
-          Feature Model–Guided Synthetic Data Generator.
+Feature Model–Guided Synthetic Data Generator.
 
-          Generate constrained synthetic text classification datasets whose structure is governed by a FeatureIDE feature model.
+Generate constrained synthetic text classification datasets whose structure is governed by a FeatureIDE feature model.
 
-          For documentation and the Python SDK, visit the [GitHub repository](https://github.com/abdelkarim-elhajjami/Synthline).
-          SPACE_README
+For documentation and the Python SDK, visit the [GitHub repository](https://github.com/abdelkarim-elhajjami/Synthline).
+SPACE_README
 
           # Reinitialize Git to push only current file contents.
           rm -rf .git

@@ -1,4 +1,4 @@
-import { FormData, Results } from "@/app/types";
+import { FormData, GenerationOutput } from "@/app/types";
 import { getSessionId } from "@/lib/session";
 
 import { UiError } from "./types";
@@ -13,7 +13,7 @@ interface GenerateActionParams {
     isPromptOptimized: boolean;
     optimizedAtomicPrompts: Array<{ config: Record<string, unknown>; prompt: string; score: number }>;
     setUiError: (value: UiError | null) => void;
-    setResults: (value: Results | null) => void;
+    setOutput: (value: GenerationOutput | null) => void;
     setIsGenerating: (value: boolean) => void;
     setStatus: (value: string) => void;
     setProgress: (value: number) => void;
@@ -32,7 +32,7 @@ export async function runGenerateAction(params: GenerateActionParams): Promise<b
         return false;
     }
 
-    params.setResults(null);
+    params.setOutput(null);
     params.setIsGenerating(true);
     params.setStatus("Generating samples");
     params.setUiError(null);

@@ -90,15 +90,6 @@ export interface ScoreStats {
     max: number | null;
 }
 
-export interface SetupBlock {
-    model: string;
-    temperature: number;
-    top_p: number;
-    prompt_approach: string;
-    requested_samples: number;
-    produced_samples: number;
-}
-
 export interface PromptEntry {
     prompt: string;
     features: Record<string, string | string[]>;
@@ -134,20 +125,29 @@ export interface AlignmentVerificationBlock {
     }>;
 }
 
-export interface GenerationReport {
+export interface GenerationMetadata {
     run_id: string;
     timestamp_utc: string;
-    setup: SetupBlock;
-    prompts: PromptEntry[];
+    llm: string;
+    temperature: number;
+    top_p: number;
+    samples_requested: number;
+    samples_produced: number;
+    verify: boolean;
+    verify_threshold: number | null;
+    optimized: boolean;
+    prompt_approach: string;
+    duration_seconds: number;
     alignment_verification: false | AlignmentVerificationBlock;
+    prompts: PromptEntry[];
     warnings?: string[];
 }
 
-export interface Results {
+export interface GenerationOutput {
     samples: Sample[];
     output_path?: string;
     output_content: string;
-    report: GenerationReport;
+    metadata: GenerationMetadata;
 }
 
 export interface AtomicPrompt {

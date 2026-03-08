@@ -2,27 +2,24 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock
 from services.generation_service import run_generation
 from services.optimization_service import run_optimization
+from synthline.types import GenerationResult
 
 @pytest.fixture
 def mock_deps():
     deps = MagicMock()
     deps.system_ctx = MagicMock()
     deps.generator = MagicMock()
-    deps.output_handler = MagicMock()
     deps.promptline = MagicMock()
     deps.logger = MagicMock()
-    
-    # Setup Generator to return a sample list
-    deps.generator.generate = AsyncMock(return_value=[{"text": "Sample", "config": {}}])
-    deps.generator._fewer_samples_received = False
-    deps.generator.fewer_samples_received = False
-    deps.generator.parsing_degraded = False
 
-    # Setup Output to return some content
-    deps.output_handler.to_csv.return_value = "CSV Content"
-    deps.output_handler.format_sample.return_value = {"Text": "Sample"}
+    # Setup Generator to return a GenerationResult
+    deps.generator.generate = AsyncMock(return_value=GenerationResult(
+        samples=[{"text": "Sample", "config": {}}],
+    ))
+
     deps.promptline.get_atomic_prompts.return_value = [{"config": {}, "prompt": "Initial"}]
-    deps.promptline.optimize_batch = AsyncMock(return_value=[("Improved", 0.8, {"prompt": "Initial"})])
+    deps.pace = MagicMock()
+    deps.pace.optimize_batch = AsyncMock(return_value=[("Improved", 0.8, {"prompt": "Initial"})])
 
     active_operations = {}
 
@@ -53,7 +50,6 @@ def mock_deps():
     
     return deps
 
-@pytest.mark.asyncio
 def test_run_generation_flow(mock_deps):
     """Test full background generation flow."""
     import asyncio
@@ -76,10 +72,7 @@ def test_run_generation_flow(mock_deps):
         # 1. Check Generator called
         mock_deps.generator.generate.assert_called_once()
 
-        # 2. Check Output formatting
-        mock_deps.output_handler.format_sample.assert_called_once()
-
-        # 3. Check WebSocket sequence
+        # 2. Check WebSocket sequence
         # Expect calls: progress(es) -> generation_complete -> complete
         assert mock_ws.send_json.call_count >= 2
 
@@ -95,7 +88,6 @@ def test_run_generation_flow(mock_deps):
 
     asyncio.run(run())
 
-@pytest.mark.asyncio
 def test_run_generation_no_ws(mock_deps):
     """Test runs gracefully when WS is missing/disconnected."""
     import asyncio
@@ -110,7 +102,6 @@ def test_run_generation_no_ws(mock_deps):
 
     asyncio.run(run())
 
-@pytest.mark.asyncio
 def test_run_generation_error_propagation(mock_deps):
     """Test exceptions are sent to client."""
     import asyncio
@@ -134,7 +125,6 @@ def test_run_generation_error_propagation(mock_deps):
     asyncio.run(run())
 
 
-@pytest.mark.asyncio
 def test_run_generation_llm_error_payload(mock_deps):
     """Test typed LLM errors are sent with machine-readable fields."""
     import asyncio
@@ -156,7 +146,6 @@ def test_run_generation_llm_error_payload(mock_deps):
     asyncio.run(run())
 
 
-@pytest.mark.asyncio
 def test_run_optimization_llm_error_payload(mock_deps):
     """Test optimization reports typed LLM errors over websocket."""
     import asyncio
@@ -164,7 +153,7 @@ def test_run_optimization_llm_error_payload(mock_deps):
     async def run():
         mock_ws = AsyncMock()
         mock_deps.system_ctx.get_connection.return_value = mock_ws
-        mock_deps.promptline.optimize_batch.side_effect = Exception(
+        mock_deps.pace.optimize_batch.side_effect = Exception(
             "LLM rate-limited: 429 Too Many Requests"
         )
 
