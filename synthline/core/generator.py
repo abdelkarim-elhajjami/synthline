@@ -70,11 +70,17 @@ class Generator:
                 samples_needed = samples_for_config - len(config_samples)
                 request_count = min(samples_needed, samples_per_prompt)
 
-                new_samples, received_count, call_degraded, parse_method = await self._generate_samples(
-                    atomic_config=config,
-                    request_count=request_count,
-                    api_keys=api_keys
-                )
+                try:
+                    new_samples, received_count, call_degraded, parse_method = (
+                        await self._generate_samples(
+                            atomic_config=config,
+                            request_count=request_count,
+                            api_keys=api_keys,
+                        )
+                    )
+                except Exception:
+                    fewer_samples_received = True
+                    break
 
                 if call_degraded:
                     parsing_degraded = True

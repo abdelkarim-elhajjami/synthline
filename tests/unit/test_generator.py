@@ -59,7 +59,7 @@ def test_generate_success(generator, mock_llm, mock_promptline):
     asyncio.run(run())
 
 def test_generate_handles_llm_failure(generator, mock_llm, mock_logger, mock_promptline):
-    """Test fail-fast propagation for LLM errors."""
+    """Test graceful degradation on LLM errors (returns empty, no crash)."""
     import asyncio
     async def run():
         features = {
@@ -92,11 +92,9 @@ def test_generate_handles_llm_failure(generator, mock_llm, mock_logger, mock_pro
 
         mock_llm.get_batch_completions.side_effect = FakeProviderError()
 
-        with pytest.raises(FakeProviderError):
-            await generator.generate(features)
-
-        mock_logger.log_error.assert_called_once()
-        assert "API request rejected" in str(mock_logger.log_error.call_args)
+        result = await generator.generate(features)
+        assert result.samples == []
+        assert result.fewer_samples_received is True
 
     asyncio.run(run())
 
