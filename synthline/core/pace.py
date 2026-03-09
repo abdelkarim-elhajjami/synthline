@@ -63,36 +63,41 @@ class PACE:
         ) -> Tuple[int, str, float, Dict[str, Any]]:
             features_merged = {**features, **atomic_config}
             initial_prompt = atomic_config.get('prompt', None)
-            try:
-                prompt, score = await self._optimize_atomic_prompt(
-                    features=features_merged,
-                    progress_callback=update_progress,
-                    initial_prompt=initial_prompt,
-                    n_iterations=n_iterations,
-                    n_actors=n_actors,
-                    n_candidates=n_candidates,
-                    prompt_update_callback=prompt_update_callback,
-                    atomic_config_index=config_idx,
-                    total_configs=total_configs,
-                    api_keys=api_keys,
-                )
-            except Exception as e:
-                self._logger.log_warning(
-                    f"PACE config {config_idx} failed, "
-                    f"falling back to original prompt: {e}",
-                    "pace_batch",
-                )
-                prompt = initial_prompt or ""
-                score = 0.0
+            prompt, score = await self._optimize_atomic_prompt(
+                features=features_merged,
+                progress_callback=update_progress,
+                initial_prompt=initial_prompt,
+                n_iterations=n_iterations,
+                n_actors=n_actors,
+                n_candidates=n_candidates,
+                prompt_update_callback=prompt_update_callback,
+                atomic_config_index=config_idx,
+                total_configs=total_configs,
+                api_keys=api_keys,
+            )
             return config_idx, prompt, score, atomic_config
 
         for i, atomic_config in enumerate(atomic_configs):
             tasks.append(asyncio.create_task(_run_config(i, atomic_config)))
 
         indexed_results: Dict[int, Tuple[str, float, Dict[str, Any]]] = {}
-        for task in asyncio.as_completed(tasks):
-            idx, prompt, score, atomic_config = await task
-            indexed_results[idx] = (prompt, score, atomic_config)
+        try:
+            for task in asyncio.as_completed(tasks):
+                idx, prompt, score, atomic_config = await task
+                indexed_results[idx] = (prompt, score, atomic_config)
+        except Exception as e:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+            self._logger.log_error(
+                f"PACE batch failed fast: {str(e)}",
+                "pace_batch",
+                {},
+            )
+            raise
 
         results: List[Tuple[str, float, Dict[str, Any]]] = []
         for idx in sorted(indexed_results):
