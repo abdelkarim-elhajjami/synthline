@@ -6,7 +6,9 @@ from synthline.core.pace import PACE
 
 @pytest.fixture
 def mock_llm():
-    return AsyncMock()
+    llm = AsyncMock()
+    llm._max_concurrency = 10
+    return llm
 
 
 @pytest.fixture

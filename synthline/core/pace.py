@@ -44,6 +44,7 @@ class PACE:
         api_keys: Optional[Dict[str, str]] = None
     ) -> List[Tuple[str, float, Dict[str, Any]]]:
         """Optimize multiple prompts in parallel (one for each atomic configuration)."""
+        semaphore = asyncio.Semaphore(self._llm._max_concurrency)
         tasks: List[asyncio.Task] = []
         total_configs = len(atomic_configs)
 
@@ -61,21 +62,22 @@ class PACE:
             config_idx: int,
             atomic_config: Dict[str, Any],
         ) -> Tuple[int, str, float, Dict[str, Any]]:
-            features_merged = {**features, **atomic_config}
-            initial_prompt = atomic_config.get('prompt', None)
-            prompt, score = await self._optimize_atomic_prompt(
-                features=features_merged,
-                progress_callback=update_progress,
-                initial_prompt=initial_prompt,
-                n_iterations=n_iterations,
-                n_actors=n_actors,
-                n_candidates=n_candidates,
-                prompt_update_callback=prompt_update_callback,
-                atomic_config_index=config_idx,
-                total_configs=total_configs,
-                api_keys=api_keys,
-            )
-            return config_idx, prompt, score, atomic_config
+            async with semaphore:
+                features_merged = {**features, **atomic_config}
+                initial_prompt = atomic_config.get('prompt', None)
+                prompt, score = await self._optimize_atomic_prompt(
+                    features=features_merged,
+                    progress_callback=update_progress,
+                    initial_prompt=initial_prompt,
+                    n_iterations=n_iterations,
+                    n_actors=n_actors,
+                    n_candidates=n_candidates,
+                    prompt_update_callback=prompt_update_callback,
+                    atomic_config_index=config_idx,
+                    total_configs=total_configs,
+                    api_keys=api_keys,
+                )
+                return config_idx, prompt, score, atomic_config
 
         for i, atomic_config in enumerate(atomic_configs):
             tasks.append(asyncio.create_task(_run_config(i, atomic_config)))
