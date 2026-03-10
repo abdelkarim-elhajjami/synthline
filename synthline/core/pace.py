@@ -83,23 +83,25 @@ class PACE:
             tasks.append(asyncio.create_task(_run_config(i, atomic_config)))
 
         indexed_results: Dict[int, Tuple[str, float, Dict[str, Any]]] = {}
-        try:
-            for task in asyncio.as_completed(tasks):
+        failed_count = 0
+        for task in asyncio.as_completed(tasks):
+            try:
                 idx, prompt, score, atomic_config = await task
                 indexed_results[idx] = (prompt, score, atomic_config)
-        except Exception as e:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception as e:
+                failed_count += 1
+                self._logger.log_error(
+                    f"Config failed, skipping: {str(e)}",
+                    "pace_batch",
+                    {},
+                )
 
+        if failed_count:
             self._logger.log_error(
-                f"PACE batch failed fast: {str(e)}",
+                f"{failed_count}/{total_configs} configs failed during PACE optimization",
                 "pace_batch",
                 {},
             )
-            raise
 
         results: List[Tuple[str, float, Dict[str, Any]]] = []
         for idx in sorted(indexed_results):

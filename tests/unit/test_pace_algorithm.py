@@ -100,28 +100,31 @@ def test_update_prompt_handles_failure(pace_instance, mock_llm, mock_logger):
     asyncio.run(run())
 
 
-def test_optimize_batch_fails_fast_on_llm_error(pace_instance):
+def test_optimize_batch_skips_failed_configs(pace_instance):
     import asyncio
 
     async def run():
         pace_instance._optimize_atomic_prompt = AsyncMock(
             side_effect=[
                 RuntimeError("Provider failed"),
-                ("prompt", 0.2),
+                ("prompt_ok", 0.2),
             ]
         )
 
         atomic_configs = [{"prompt": "p1"}, {"prompt": "p2"}]
         features = {"samples_per_prompt": 1, "llm": "gpt-4"}
 
-        with pytest.raises(RuntimeError, match="Provider failed"):
-            await pace_instance.optimize_batch(
-                atomic_configs=atomic_configs,
-                features=features,
-                n_iterations=1,
-                n_actors=1,
-                n_candidates=1,
-            )
+        results = await pace_instance.optimize_batch(
+            atomic_configs=atomic_configs,
+            features=features,
+            n_iterations=1,
+            n_actors=1,
+            n_candidates=1,
+        )
+
+        # One config failed, one succeeded — returns only successful
+        assert len(results) == 1
+        assert results[0][0] == "prompt_ok"
 
     asyncio.run(run())
 

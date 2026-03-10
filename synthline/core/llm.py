@@ -2,6 +2,7 @@
 Client for OpenAI, OpenRouter, and HuggingFace APIs.
 """
 import asyncio
+import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from openai import AsyncClient, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError
@@ -217,7 +218,7 @@ class LLMClient:
                     self._logger.log_error(str(e), "llm", {"model": model})
                     raise
 
-            except (APITimeoutError, APIConnectionError) as e:
+            except (APITimeoutError, APIConnectionError, json.JSONDecodeError) as e:
                 last_error = e
                 wait = min(2 ** attempt, 60)
                 self._logger.log_error(
