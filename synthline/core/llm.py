@@ -31,7 +31,7 @@ class LLMClient:
         self._logger = logger
         self._request_timeout = 120
         self._max_retries = 5
-        self._max_concurrency = 10
+        self._max_concurrency = 100
         self._semaphore = asyncio.Semaphore(self._max_concurrency)
 
     @staticmethod

@@ -133,40 +133,36 @@ class PACE:
 
         # Repeat until convergence or max iterations
         for t in range(n_iterations):
-            all_critiques = []
-            all_actions = []
-
-            for _ in range(n_actors):
+            async def _actor_critic_pair():
                 action = await self._run_actor(prompt=current_prompt, features=features, api_keys=api_keys)
-                all_actions.append(action)
-
                 critique = await self._run_critic(
-                    prompt=current_prompt,
-                    action=action,
-                    features=features,
-                    api_keys=api_keys,
+                    prompt=current_prompt, action=action, features=features, api_keys=api_keys,
                 )
-                all_critiques.append(critique)
+                return action, critique
 
-            all_candidate_prompts = []
-            all_candidate_scores = []
+            pairs = await asyncio.gather(*[_actor_critic_pair() for _ in range(n_actors)])
+            all_actions = [a for a, _ in pairs]
+            all_critiques = [c for _, c in pairs]
 
-            for _ in range(n_candidates):
-                candidate_prompt = await self._update_prompt(current_prompt, all_critiques, features, initial_prompt=initial_prompt, api_keys=api_keys)
-
-                new_actions = []
-                for _ in range(n_actors):
-                    action = await self._run_actor(prompt=candidate_prompt, features=features, api_keys=api_keys)
-                    new_actions.append(action)
-
-                candidate_score = self._evaluate_prompt(
+            async def _eval_candidate():
+                candidate_prompt = await self._update_prompt(
+                    current_prompt, all_critiques, features,
+                    initial_prompt=initial_prompt, api_keys=api_keys,
+                )
+                new_actions = list(await asyncio.gather(*[
+                    self._run_actor(prompt=candidate_prompt, features=features, api_keys=api_keys)
+                    for _ in range(n_actors)
+                ]))
+                score = self._evaluate_prompt(
                     raw_completions=new_actions,
                     samples_per_prompt=features["samples_per_prompt"],
                     features=features,
                 )
+                return candidate_prompt, score
 
-                all_candidate_prompts.append(candidate_prompt)
-                all_candidate_scores.append(candidate_score)
+            results = await asyncio.gather(*[_eval_candidate() for _ in range(n_candidates)])
+            all_candidate_prompts = [p for p, _ in results]
+            all_candidate_scores = [s for _, s in results]
 
             if all_candidate_prompts:
                 best_idx = all_candidate_scores.index(max(all_candidate_scores))
