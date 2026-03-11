@@ -2,16 +2,23 @@
 Implementation of PACE (Prompt Actor-Critic Editing) for Synthline.
 https://aclanthology.org/2024.findings-acl.436/
 """
-from typing import Any, Awaitable, Callable, Dict, List, Tuple, Optional
 import asyncio
+from typing import Any, Dict, List, Optional, Tuple
+
 from synthline.core.align_scorer import AlignScorer
-from synthline.core.constants import extract_fm_constraints
+from synthline.core.constants import PACE_EVENT_FINAL, PACE_EVENT_NEW_BEST, extract_fm_constraints
 from synthline.core.llm import LLMClient
-from synthline.utils.logger import Logger
 from synthline.core.schemas import samples_schema
+from synthline.types import (
+    OptimizedPrompt,
+    ProgressCallback,
+    PromptUpdateCallback,
+    PromptUpdateEvent,
+    StepCallback,
+)
+from synthline.utils.logger import Logger
 from synthline.utils.parsing import parse_completion
-from synthline.types import PromptUpdateCallback
-from synthline.utils.progress import ProgressFn, track_progress
+from synthline.utils.progress import report_progress
 
 
 class PACE:
@@ -39,10 +46,10 @@ class PACE:
         n_iterations: int,
         n_actors: int,
         n_candidates: int,
-        progress_callback: ProgressFn = None,
+        progress_callback: ProgressCallback = None,
         prompt_update_callback: PromptUpdateCallback = None,
         api_keys: Optional[Dict[str, str]] = None
-    ) -> List[Tuple[str, float, Dict[str, Any]]]:
+    ) -> List[OptimizedPrompt]:
         """Optimize multiple prompts in parallel (one for each atomic configuration)."""
         semaphore = asyncio.Semaphore(self._llm._max_concurrency)
         tasks: List[asyncio.Task] = []
@@ -55,13 +62,12 @@ class PACE:
             nonlocal completed_iterations
             completed_iterations += 1
             progress = (completed_iterations / total_iterations) * 100
-            if progress_callback:
-                await track_progress(progress_callback, progress)
+            await report_progress(progress_callback, progress, "Optimizing prompts")
 
         async def _run_config(
             config_idx: int,
             atomic_config: Dict[str, Any],
-        ) -> Tuple[int, str, float, Dict[str, Any]]:
+        ) -> Tuple[int, OptimizedPrompt]:
             async with semaphore:
                 features_merged = {**features, **atomic_config}
                 initial_prompt = atomic_config.get('prompt', None)
@@ -77,17 +83,19 @@ class PACE:
                     total_configs=total_configs,
                     api_keys=api_keys,
                 )
-                return config_idx, prompt, score, atomic_config
+                return config_idx, OptimizedPrompt(
+                    prompt=prompt, score=score, config=atomic_config,
+                )
 
         for i, atomic_config in enumerate(atomic_configs):
             tasks.append(asyncio.create_task(_run_config(i, atomic_config)))
 
-        indexed_results: Dict[int, Tuple[str, float, Dict[str, Any]]] = {}
+        indexed_results: Dict[int, OptimizedPrompt] = {}
         failed_count = 0
         for task in asyncio.as_completed(tasks):
             try:
-                idx, prompt, score, atomic_config = await task
-                indexed_results[idx] = (prompt, score, atomic_config)
+                idx, result = await task
+                indexed_results[idx] = result
             except Exception as e:
                 failed_count += 1
                 self._logger.log_error(
@@ -103,14 +111,12 @@ class PACE:
                 {},
             )
 
-        results: List[Tuple[str, float, Dict[str, Any]]] = []
-        for idx in sorted(indexed_results):
-            prompt, score, atomic_config = indexed_results[idx]
-            results.append((prompt, score, atomic_config))
+        results: List[OptimizedPrompt] = [
+            indexed_results[idx] for idx in sorted(indexed_results)
+        ]
 
         # Ensure progress reaches 100% when finished
-        if progress_callback:
-            await track_progress(progress_callback, 100)
+        await report_progress(progress_callback, 100, "Optimization complete")
 
         return results
 
@@ -121,7 +127,7 @@ class PACE:
         n_iterations: int,
         n_actors: int,
         n_candidates: int,
-        progress_callback: Optional[Callable[[], Awaitable[None]]] = None,
+        progress_callback: StepCallback = None,
         initial_prompt: Optional[str] = None,
         prompt_update_callback: PromptUpdateCallback = None,
         atomic_config_index: Optional[int] = None,
@@ -143,7 +149,6 @@ class PACE:
                 return action, critique
 
             pairs = await asyncio.gather(*[_actor_critic_pair() for _ in range(n_actors)])
-            all_actions = [a for a, _ in pairs]
             all_critiques = [c for _, c in pairs]
 
             async def _eval_candidate():
@@ -178,7 +183,7 @@ class PACE:
                     self._logger.log_prompt(
                         prompt=best_prompt,
                         score=best_score,
-                        event="NEW BEST PROMPT",
+                        event=PACE_EVENT_NEW_BEST,
                         config=features
                     )
 
@@ -186,14 +191,14 @@ class PACE:
 
                 if prompt_update_callback:
                     try:
-                        await prompt_update_callback(
-                            best_prompt,
-                            best_score,
-                            t + 1,
-                            n_iterations,
-                            atomic_config_index,
-                            total_configs,
-                        )
+                        await prompt_update_callback(PromptUpdateEvent(
+                            prompt=best_prompt,
+                            score=best_score,
+                            iteration=t + 1,
+                            total_iterations=n_iterations,
+                            config_index=atomic_config_index,
+                            total_configs=total_configs,
+                        ))
                     except Exception as cb_error:
                         self._logger.log_error(
                             f"Prompt update callback error: {str(cb_error)}",
@@ -208,7 +213,7 @@ class PACE:
         self._logger.log_prompt(
             prompt=best_prompt,
             score=best_score,
-            event="FINAL OPTIMIZED PROMPT",
+            event=PACE_EVENT_FINAL,
             config=features
         )
 
@@ -222,12 +227,12 @@ class PACE:
     ) -> str:
         """Run the actor to generate synthetic samples based on the current prompt."""
         try:
-            spp = max(1, int(features.get("samples_per_prompt", 1)))
+            samples_per_prompt = max(1, int(features.get("samples_per_prompt", 1)))
             completions = await self._llm.get_batch_completions(
                 prompts=[prompt],
                 features=features,
                 api_keys=api_keys,
-                response_format=samples_schema(spp),
+                response_format=samples_schema(samples_per_prompt),
             )
             return completions[0]
 

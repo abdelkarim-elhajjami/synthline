@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock
 from services.generation_service import run_generation
 from services.optimization_service import run_optimization
-from synthline.types import GenerationResult
+from synthline.types import GenerationResult, OptimizedPrompt
 
 @pytest.fixture
 def mock_deps():
@@ -19,7 +19,9 @@ def mock_deps():
 
     deps.promptline.get_atomic_prompts.return_value = [{"config": {}, "prompt": "Initial"}]
     deps.pace = MagicMock()
-    deps.pace.optimize_batch = AsyncMock(return_value=[("Improved", 0.8, {"prompt": "Initial"})])
+    deps.pace.optimize_batch = AsyncMock(return_value=[
+        OptimizedPrompt(prompt="Improved", score=0.8, config={"prompt": "Initial"})
+    ])
 
     active_operations = {}
 

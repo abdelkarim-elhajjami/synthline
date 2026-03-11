@@ -1,10 +1,14 @@
-"""Tests for the config-aware verification loop in client.py."""
+"""Tests for the config-aware verification engine."""
 
 import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock
 
-from synthline.client import _group_rejected_by_config, _config_key
+from synthline.core.verification import (
+    config_key,
+    run_verification_loop,
+    _group_rejected_by_config,
+)
 from synthline.types import GenerationResult
 
 
@@ -37,21 +41,15 @@ def _scored(sample: dict, score: float):
     return (sample, score)
 
 
-class _FakeClient:
-    """Minimal stand-in for Synthline to call _run_verification_loop directly."""
-
-    def __init__(self, verifier, generator, api_keys=None):
-        self._runtime = MagicMock()
-        self._runtime.align_verifier = verifier
-        self._runtime.generator = generator
-        self._api_keys = api_keys or {}
-
-    async def run_loop(self, raw_samples, features, threshold, samples_needed):
-        from synthline.client import Synthline
-        # Bind method to our fake instance
-        return await Synthline._run_verification_loop(
-            self, raw_samples, features, threshold, samples_needed
-        )
+async def _run_loop(verifier, generator, raw_samples, features, threshold, samples_needed):
+    return await run_verification_loop(
+        raw_samples=raw_samples,
+        features=features,
+        threshold=threshold,
+        samples_needed=samples_needed,
+        verifier=verifier,
+        generator=generator,
+    )
 
 
 # ======================================================================
@@ -62,19 +60,19 @@ class _FakeClient:
 class TestConfigKey:
     def test_excludes_prompt(self):
         config = {"llm": "model", "prompt": "hello", "temperature": 0.7}
-        key = _config_key(config)
+        key = config_key(config)
         assert "prompt" not in key
         assert "llm" in key
 
     def test_same_config_same_key(self):
         c1 = {"llm": "model", "temperature": 0.7, "prompt": "a"}
         c2 = {"llm": "model", "temperature": 0.7, "prompt": "b"}
-        assert _config_key(c1) == _config_key(c2)
+        assert config_key(c1) == config_key(c2)
 
     def test_different_config_different_key(self):
         c1 = {"llm": "model-a", "temperature": 0.7, "prompt": "x"}
         c2 = {"llm": "model-b", "temperature": 0.7, "prompt": "x"}
-        assert _config_key(c1) != _config_key(c2)
+        assert config_key(c1) != config_key(c2)
 
     def test_excludes_optimized_prompt_and_pace_score(self):
         c1 = {"llm": "model", "temperature": 0.7, "prompt": "a"}
@@ -85,7 +83,7 @@ class TestConfigKey:
             "optimized_prompt": "better a",
             "pace_score": 0.85,
         }
-        assert _config_key(c1) == _config_key(c2)
+        assert config_key(c1) == config_key(c2)
 
 
 # ======================================================================
@@ -116,8 +114,8 @@ class TestGroupRejectedByConfig:
         groups = _group_rejected_by_config(rejected)
         assert len(groups) == 2
 
-        key_a = _config_key(config_a)
-        key_b = _config_key(config_b)
+        key_a = config_key(config_a)
+        key_b = config_key(config_b)
         assert groups[key_a][1] == 2
         assert groups[key_b][1] == 1
 
@@ -152,8 +150,7 @@ class TestVerificationLoop:
 
             generator = AsyncMock()
 
-            client = _FakeClient(verifier, generator)
-            accepted, meta, warnings = await client.run_loop(
+            accepted, meta, warnings = await _run_loop(verifier, generator,
                 samples, self._features(), threshold=0.6, samples_needed=3
             )
 
@@ -185,8 +182,7 @@ class TestVerificationLoop:
             generator = AsyncMock()
             generator.generate_for_configs.return_value = regen_result
 
-            client = _FakeClient(verifier, generator)
-            accepted, meta, warnings = await client.run_loop(
+            accepted, meta, warnings = await _run_loop(verifier, generator,
                 [s1, s2], self._features(spp=20), threshold=0.6, samples_needed=2
             )
 
@@ -241,8 +237,7 @@ class TestVerificationLoop:
                 samples=regen_samples
             )
 
-            client = _FakeClient(verifier, generator)
-            accepted, meta, warnings = await client.run_loop(
+            accepted, meta, warnings = await _run_loop(verifier, generator,
                 accepted_samples + rejected_samples,
                 self._features(spp=20),
                 threshold=0.6,
@@ -253,9 +248,9 @@ class TestVerificationLoop:
             # Check config_requests
             call_args = generator.generate_for_configs.call_args
             config_requests = call_args.kwargs["config_requests"]
-            counts = {_config_key(c): n for c, n in config_requests}
-            assert counts[_config_key(config_a)] == 1
-            assert counts[_config_key(config_b)] == 2
+            counts = {config_key(c): n for c, n in config_requests}
+            assert counts[config_key(config_a)] == 1
+            assert counts[config_key(config_b)] == 2
 
         asyncio.run(run())
 
@@ -275,8 +270,7 @@ class TestVerificationLoop:
                 samples=[_make_sample("still_bad", config)]
             )
 
-            client = _FakeClient(verifier, generator)
-            accepted, meta, warnings = await client.run_loop(
+            accepted, meta, warnings = await _run_loop(verifier, generator,
                 [bad], self._features(spp=20), threshold=0.6, samples_needed=1
             )
 
@@ -329,8 +323,7 @@ class TestVerificationLoop:
                 ]
             )
 
-            client = _FakeClient(verifier, generator)
-            accepted, meta, warnings = await client.run_loop(
+            accepted, meta, warnings = await _run_loop(verifier, generator,
                 accepted_samples + rejected_samples,
                 self._features(spp=20),
                 threshold=0.6,
@@ -359,8 +352,7 @@ class TestVerificationLoop:
             generator = AsyncMock()
             generator.generate_for_configs.return_value = GenerationResult(samples=[])
 
-            client = _FakeClient(verifier, generator)
-            accepted, meta, warnings = await client.run_loop(
+            accepted, meta, warnings = await _run_loop(verifier, generator,
                 [bad], self._features(spp=20), threshold=0.6, samples_needed=1
             )
 
@@ -387,8 +379,7 @@ class TestVerificationLoop:
                 samples=[_make_sample("good", config)]
             )
 
-            client = _FakeClient(verifier, generator)
-            await client.run_loop(
+            await _run_loop(verifier, generator,
                 [bad], self._features(spp=20), threshold=0.6, samples_needed=1
             )
 
@@ -418,8 +409,7 @@ class TestVerificationLoop:
                 samples=[_make_sample("good", config)]
             )
 
-            client = _FakeClient(verifier, generator)
-            await client.run_loop(
+            await _run_loop(verifier, generator,
                 [bad], self._features(spp=20), threshold=0.6, samples_needed=1
             )
 
@@ -444,8 +434,7 @@ class TestVerificationLoop:
             )
 
             generator = AsyncMock()
-            client = _FakeClient(verifier, generator)
-            _, meta, _ = await client.run_loop(
+            _, meta, _ = await _run_loop(verifier, generator,
                 samples, self._features(), threshold=0.6, samples_needed=1
             )
 
@@ -481,8 +470,7 @@ class TestVerificationLoop:
                 parsing_degraded=True,
             )
 
-            client = _FakeClient(verifier, generator)
-            _, _, warnings = await client.run_loop(
+            _, _, warnings = await _run_loop(verifier, generator,
                 [bad], self._features(spp=20), threshold=0.6, samples_needed=1
             )
 
@@ -511,8 +499,7 @@ class TestVerificationLoop:
             generator = AsyncMock()
             generator.generate_for_configs.return_value = GenerationResult(samples=[])
 
-            client = _FakeClient(verifier, generator)
-            _, meta, _ = await client.run_loop(
+            _, meta, _ = await _run_loop(verifier, generator,
                 samples, self._features(spp=20), threshold=0.6, samples_needed=2
             )
 

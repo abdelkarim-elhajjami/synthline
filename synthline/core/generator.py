@@ -1,16 +1,24 @@
+"""LLM sample generation with retry logic and config-aware distribution."""
+
 import math
 import random
 from typing import Any, Dict, List, Optional, Tuple
+
 from synthline.core.llm import LLMClient
 from synthline.core.promptline import Promptline
 from synthline.core.schemas import samples_schema
-from synthline.types import GenerationResult
+from synthline.types import GenerationResult, LLMCallResult, ProgressCallback
 from synthline.utils.logger import Logger
 from synthline.utils.parsing import parse_completion_with_meta
-from synthline.utils.progress import ProgressFn, track_progress
+from synthline.utils.progress import report_progress
+
+
+MAX_RETRIES = 3
 
 
 class Generator:
+    """Orchestrates LLM calls to produce structured synthetic samples."""
+
     def __init__(
         self,
         llm: LLMClient,
@@ -24,7 +32,7 @@ class Generator:
     async def generate(
         self,
         features: Dict[str, Any],
-        progress_callback: ProgressFn = None,
+        progress_callback: ProgressCallback = None,
         api_keys: Optional[Dict[str, str]] = None
     ) -> GenerationResult:
         all_samples = []
@@ -62,7 +70,7 @@ class Generator:
 
             config_samples = []
             retries = 0
-            max_retries = 3
+            max_retries = MAX_RETRIES
             max_calls = (samples_for_config // max(1, samples_per_prompt)) + max_retries + 1
             calls = 0
             while len(config_samples) < samples_for_config and calls < max_calls:
@@ -71,22 +79,20 @@ class Generator:
                 request_count = min(samples_needed, samples_per_prompt)
 
                 try:
-                    new_samples, received_count, call_degraded, parse_method = (
-                        await self._generate_samples(
-                            atomic_config=config,
-                            request_count=request_count,
-                            api_keys=api_keys,
-                        )
+                    call = await self._generate_samples(
+                        atomic_config=config,
+                        request_count=request_count,
+                        api_keys=api_keys,
                     )
                 except Exception:
                     fewer_samples_received = True
                     break
 
-                if call_degraded:
+                if call.parsing_degraded:
                     parsing_degraded = True
 
                 # Retry only on actual parse failure (malformed output)
-                if call_degraded and received_count < request_count:
+                if call.parsing_degraded and call.valid_count < request_count:
                     retries += 1
                     if retries >= max_retries:
                         fewer_samples_received = True
@@ -97,19 +103,19 @@ class Generator:
                         )
                         break
                     self._logger.log_warning(
-                        f"Got {received_count}/{request_count} samples "
-                        f"({parse_method}), retrying ({retries}/{max_retries}).",
+                        f"Got {call.valid_count}/{request_count} samples "
+                        f"({call.parse_method}), retrying ({retries}/{max_retries}).",
                         "generator",
                     )
                     continue
 
                 # Accept valid samples (loop fills any gap on next iteration)
-                if new_samples:
-                    config_samples.extend(new_samples)
-                    generated_so_far += len(new_samples)
+                if call.samples:
+                    config_samples.extend(call.samples)
+                    generated_so_far += len(call.samples)
                     if progress_callback and total_samples > 0:
                         progress = min(100.0, (generated_so_far / total_samples) * 100.0)
-                        await track_progress(progress_callback, progress)
+                        await report_progress(progress_callback, progress, "Generating samples")
                 else:
                     break
 
@@ -118,7 +124,7 @@ class Generator:
         all_samples = all_samples[:total_samples]
 
         if progress_callback:
-            await track_progress(progress_callback, 100)
+            await report_progress(progress_callback, 100, "Generation complete")
 
         return GenerationResult(
             samples=all_samples,
@@ -153,7 +159,7 @@ class Generator:
 
             config_samples: List[Dict[str, Any]] = []
             retries = 0
-            max_retries = 3
+            max_retries = MAX_RETRIES
             max_calls = math.ceil(target_count / max(1, samples_per_prompt)) + max_retries + 1
             calls = 0
 
@@ -165,21 +171,19 @@ class Generator:
                 request_count = samples_per_prompt
 
                 try:
-                    new_samples, received_count, call_degraded, parse_method = (
-                        await self._generate_samples(
-                            atomic_config=regen_config,
-                            request_count=request_count,
-                            api_keys=api_keys,
-                        )
+                    call = await self._generate_samples(
+                        atomic_config=regen_config,
+                        request_count=request_count,
+                        api_keys=api_keys,
                     )
                 except Exception:
                     fewer_samples_received = True
                     break
 
-                if call_degraded:
+                if call.parsing_degraded:
                     parsing_degraded = True
 
-                if call_degraded and received_count < request_count:
+                if call.parsing_degraded and call.valid_count < request_count:
                     retries += 1
                     if retries >= max_retries:
                         fewer_samples_received = True
@@ -191,8 +195,8 @@ class Generator:
                         break
                     continue
 
-                if new_samples:
-                    config_samples.extend(new_samples)
+                if call.samples:
+                    config_samples.extend(call.samples)
                 else:
                     break
 
@@ -209,21 +213,9 @@ class Generator:
         atomic_config: Dict[str, Any],
         request_count: int,
         api_keys: Optional[Dict[str, str]] = None
-    ) -> Tuple[List[Dict[str, Any]], int, bool, str]:
-        """Generate samples from a single LLM call.
-
-        Args:
-            atomic_config: Feature configuration for this generation.
-            request_count: Exact number of samples to request (schema + prompt).
-            api_keys: Optional API keys.
-
-        Returns:
-            (samples, valid_count, parsing_degraded, parse_method)
-        """
-        new_samples = []
-        sample_texts = []
-        parsing_degraded = False
-        parse_method = "plaintext"
+    ) -> LLMCallResult:
+        """Generate samples from a single LLM call."""
+        new_samples: List[Dict[str, Any]] = []
 
         response_format = samples_schema(request_count)
 
@@ -241,7 +233,10 @@ class Generator:
             )
             completion = completion_list[0]
 
-            sample_texts, parsing_degraded, parse_method = parse_completion_with_meta(completion, request_count)
+            parsed = parse_completion_with_meta(completion, request_count)
+            sample_texts = parsed.samples
+            parsing_degraded = parsed.degraded
+            parse_method = parsed.method
 
             for sample_text in sample_texts[:request_count]:
                 if sample_text and sample_text.strip():
@@ -259,7 +254,12 @@ class Generator:
             raise
 
         valid_count = sum(1 for s in sample_texts if s and s.strip())
-        return new_samples, valid_count, parsing_degraded, parse_method
+        return LLMCallResult(
+            samples=new_samples,
+            valid_count=valid_count,
+            parsing_degraded=parsing_degraded,
+            parse_method=parse_method,
+        )
 
     def _distribute_samples(
         self,

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional
+from typing import Any, Awaitable, Callable, Dict, Iterator, List, Optional, Tuple
 
 import pandas as pd
 
@@ -12,26 +12,75 @@ from synthline.core.constants import OPERATING_FIELDS
 
 
 # ---------------------------------------------------------------------------
-# Callback type aliases (public SDK surface)
+# Callback event types (public SDK surface)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class VerificationEvent:
+    """Payload passed to a :data:`VerificationCallback` on each verification step."""
+
+    attempt: int
+    max_attempts: int
+    accepted: int
+    needed: int
+    progress: float
+
+
+@dataclass(frozen=True)
+class PromptUpdateEvent:
+    """Payload passed to a :data:`PromptUpdateCallback` after each PACE iteration."""
+
+    prompt: str
+    score: float
+    iteration: int
+    total_iterations: int
+    config_index: int
+    total_configs: int
+
+
+# ---------------------------------------------------------------------------
+# Callback type aliases
 # ---------------------------------------------------------------------------
 
 ProgressCallback = Optional[Callable[[float, str], Awaitable[None]]]
-"""async (progress_pct: float, message: str) -> None"""
+"""``async (progress_pct, message) -> None``"""
 
-VerificationCallback = Optional[
-    Callable[[int, int, int, int, float], Awaitable[None]]
-]
-"""async (attempt, max_attempts, accepted_so_far, samples_needed, progress_pct) -> None"""
+VerificationCallback = Optional[Callable[[VerificationEvent], Awaitable[None]]]
+"""``async (event: VerificationEvent) -> None``"""
 
-PromptUpdateCallback = Optional[
-    Callable[[str, float, int, int, int, int], Awaitable[None]]
-]
-"""async (prompt, score, iteration, n_iterations, config_index, total_configs) -> None"""
+PromptUpdateCallback = Optional[Callable[[PromptUpdateEvent], Awaitable[None]]]
+"""``async (event: PromptUpdateEvent) -> None``"""
+
+StepCallback = Optional[Callable[[], Awaitable[None]]]
+"""``async () -> None`` — lightweight signal that one unit of work completed."""
 
 
 # ---------------------------------------------------------------------------
-# GenerationResult — internal return type from Generator.generate()
+# Internal result types
 # ---------------------------------------------------------------------------
+
+ScoredSample = Tuple[Dict[str, Any], float]
+"""A verified sample paired with its alignment score: ``(sample_dict, score)``."""
+
+
+@dataclass(frozen=True)
+class OptimizedPrompt:
+    """Result of PACE optimization for a single atomic configuration."""
+
+    prompt: str
+    score: float
+    config: Dict[str, Any]
+
+
+@dataclass
+class ParseResult:
+    """Result of parsing an LLM completion into sample texts."""
+
+    samples: List[str]
+    degraded: bool = False
+    method: str = "plaintext"
+
 
 @dataclass
 class GenerationResult:
@@ -44,6 +93,16 @@ class GenerationResult:
     samples: List[Dict[str, Any]]
     fewer_samples_received: bool = False
     parsing_degraded: bool = False
+
+
+@dataclass
+class LLMCallResult:
+    """Result of a single LLM generation call within :class:`Generator`."""
+
+    samples: List[Dict[str, Any]]
+    valid_count: int
+    parsing_degraded: bool = False
+    parse_method: str = "plaintext"
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +240,6 @@ class Dataset:
 
     samples: List[Dict[str, Any]]
     metadata: Dict[str, Any] = field(default_factory=dict)
-    raw_samples: Optional[List[Dict[str, Any]]] = None
 
     # -- sequence protocol --------------------------------------------------
 
@@ -210,6 +268,29 @@ class Dataset:
 
         return sample
 
+    @staticmethod
+    def unformat_sample(
+        formatted: Dict[str, Any],
+        prompt_text: str = "",
+    ) -> Dict[str, Any]:
+        """Inverse of :meth:`format_sample` — reconstruct internal raw sample.
+
+        Builds the ``{"text": ..., "config": {...}}`` dict that the verifier
+        and generator expect from a formatted (CSV-row-like) sample.
+        """
+        text = formatted.get("Text", "")
+        label = formatted.get("Label", "")
+        features = {k: v for k, v in formatted.items() if k not in ("Text", "Label")}
+        constraints = [{"label": k, "value": v} for k, v in features.items()]
+        config: Dict[str, Any] = {
+            **features,
+            "classification_label": label,
+            "__fm_constraints__": constraints,
+        }
+        if prompt_text:
+            config["prompt"] = prompt_text
+        return {"text": text, "config": config}
+
     # -- export -------------------------------------------------------------
 
     def to_csv(self) -> str:
@@ -223,7 +304,7 @@ class Dataset:
         return pd.DataFrame(self.samples)
 
     def save(self, path: str) -> None:
-        """Write ``data.csv``, ``metadata.json``, and optionally ``raw_samples.json`` to *path*."""
+        """Write ``data.csv`` and ``metadata.json`` to *path*."""
         out = Path(path)
         out.mkdir(parents=True, exist_ok=True)
 
@@ -234,11 +315,6 @@ class Dataset:
         if self.metadata:
             (out / "metadata.json").write_text(
                 json.dumps(self.metadata, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
-
-        if self.raw_samples is not None:
-            (out / "raw_samples.json").write_text(
-                json.dumps(self.raw_samples, ensure_ascii=False), encoding="utf-8"
             )
 
     @classmethod
@@ -257,9 +333,4 @@ class Dataset:
             df = pd.read_csv(csv_path, encoding="utf-8", dtype=str, keep_default_na=False)
             samples = df.to_dict("records")
 
-        raw_samples: Optional[List[Dict[str, Any]]] = None
-        raw_path = src / "raw_samples.json"
-        if raw_path.exists():
-            raw_samples = json.loads(raw_path.read_text(encoding="utf-8"))
-
-        return cls(samples=samples, metadata=metadata, raw_samples=raw_samples)
+        return cls(samples=samples, metadata=metadata)

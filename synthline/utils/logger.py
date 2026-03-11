@@ -7,22 +7,25 @@ import random
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from synthline.core.constants import OPERATING_FIELDS
+from synthline.core.constants import OPERATING_FIELDS, PACE_EVENTS
+
 
 class Logger:
+    CONVERSATION_SAMPLE_RATE = 0.1
+
     def __init__(self, debug_mode: bool = False):
         self.debug_mode = debug_mode
-        self.conversation_sample_rate = 0.1 # Log 10% of conversations in debug mode
-        
+        self.conversation_sample_rate = self.CONVERSATION_SAMPLE_RATE
+
         self._logger = logging.getLogger("Synthline")
         self._logger.setLevel(logging.DEBUG if self.debug_mode else logging.INFO)
-        
+
         if not self._logger.handlers:
             handler = logging.StreamHandler()
             formatter = logging.Formatter('%(message)s')
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
-        
+
     def log_info(self,
                  message: str,
                  component: str,
@@ -49,7 +52,7 @@ class Logger:
             "message": message,
             "context": context
         })
-    
+
     def log_prompt(self,
                   prompt: str,
                   score: float,
@@ -57,8 +60,8 @@ class Logger:
                   config: Dict[str, Any]) -> None:
         if not self.debug_mode:
             return
-            
-        if event not in ["NEW BEST PROMPT", "FINAL OPTIMIZED PROMPT"]:
+
+        if event not in PACE_EVENTS:
             return
 
         config_preview = {
@@ -71,7 +74,7 @@ class Logger:
             "prompt_preview": prompt[:100] + "..." if len(prompt) > 100 else prompt,
             "config": config_preview,
         })
-    
+
     def log_conversation(self,
                         prompt: str,
                         completion: str,
@@ -83,7 +86,7 @@ class Logger:
 
         if random.random() > self.conversation_sample_rate:
             return
-            
+
         self._log("DEBUG", "LLM", {
             "model": model,
             "temperature": temperature,
@@ -100,7 +103,7 @@ class Logger:
             **data
         }
         json_msg = json.dumps(log_entry, ensure_ascii=False, default=str)
-        
+
         if level == "ERROR":
             self._logger.error(json_msg)
         elif level == "WARNING":
@@ -109,4 +112,3 @@ class Logger:
             self._logger.debug(json_msg)
         else:
             self._logger.info(json_msg)
-            

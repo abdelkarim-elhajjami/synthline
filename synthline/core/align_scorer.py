@@ -30,7 +30,7 @@ class AlignScorer:
 
     def score_samples(self, samples: List[str], attributes: Dict[str, Any]) -> List[float]:
         """Return per-sample entailment probabilities."""
-        non_empty_samples = [str(sample).strip() for sample in samples if str(sample).strip()]
+        non_empty_samples = [s for sample in samples if (s := str(sample).strip())]
         if not non_empty_samples:
             raise ValueError("AlignScorer received an empty sample batch.")
 
@@ -104,7 +104,7 @@ class AlignScorer:
         statements: List[str] = []
         for label, value in extract_fm_constraints(attributes):
             if isinstance(value, list):
-                values = [str(v).strip() for v in value if str(v).strip()]
+                values = [s for v in value if (s := str(v).strip())]
                 if not values:
                     continue
                 value_text = ", ".join(values)
@@ -115,7 +115,7 @@ class AlignScorer:
             statements.append(f"{label} is {value_text}")
         return statements
 
-    def _get_runtime_components(self):
+    def _get_runtime_components(self) -> Tuple[Any, Any, int]:
         if self._model_load_attempted:
             if self._model is None or self._tokenizer is None or self._entailment_index is None:
                 raise RuntimeError("AlignScorer runtime is not available after initialization failure.")

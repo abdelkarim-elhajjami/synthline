@@ -131,7 +131,7 @@ def test_progress_reporting(generator, mock_llm, mock_promptline):
 
         # Assert
         assert mock_callback.call_count >= 1
-        mock_callback.assert_called_with(100)
+        mock_callback.assert_called_with(100, "Generation complete")
 
     asyncio.run(run())
 

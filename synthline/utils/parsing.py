@@ -2,7 +2,9 @@
 Parsing utilities for structured LLM outputs.
 """
 import json
-from typing import List, Tuple
+from typing import List
+
+from synthline.types import ParseResult
 
 
 def parse_completion(text: str, expected_count: int) -> List[str]:
@@ -15,14 +17,13 @@ def parse_completion(text: str, expected_count: int) -> List[str]:
     Returns:
         List of sample texts.
     """
-    samples, _, _ = parse_completion_with_meta(text, expected_count)
-    return samples
+    return parse_completion_with_meta(text, expected_count).samples
 
 
-def parse_completion_with_meta(text: str, expected_count: int) -> Tuple[List[str], bool, str]:
-    """Parse completion and return (samples, parsing_degraded, parse_method).
+def parse_completion_with_meta(text: str, expected_count: int) -> ParseResult:
+    """Parse completion into a :class:`ParseResult`.
 
-    ``parse_method`` is one of:
+    ``method`` is one of:
     - ``"json"``      – valid JSON parsed successfully
     - ``"plaintext"`` – JSON parsing failed; raw text returned as-is
     """
@@ -31,11 +32,11 @@ def parse_completion_with_meta(text: str, expected_count: int) -> Tuple[List[str
     # Try structured output: {"samples": ["...", "..."]}
     samples = _try_unwrap_structured(stripped)
     if samples:
-        return samples, False, "json"
+        return ParseResult(samples=samples, degraded=False, method="json")
 
     # Fallback: raw text as single sample.
     # Degraded if we expected structured output (multiple samples).
-    return [stripped], expected_count > 1, "plaintext"
+    return ParseResult(samples=[stripped], degraded=expected_count > 1, method="plaintext")
 
 
 def _try_unwrap_structured(text: str) -> List[str]:
@@ -51,5 +52,5 @@ def _try_unwrap_structured(text: str) -> List[str]:
                 if isinstance(value, list) and value and all(isinstance(item, str) for item in value):
                     return [item.strip() for item in value if item.strip()]
     except Exception:
-        pass
+        pass  # Malformed JSON — fall through to plaintext path
     return []

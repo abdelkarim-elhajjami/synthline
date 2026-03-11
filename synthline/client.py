@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from synthline.core.align_verifier import AlignVerifier
-from synthline.core.constants import OPERATING_FIELDS
 from synthline.core.fm_parser import FM
+from synthline.core.verification import (
+    build_prompt_lookup,
+    reconstruct_raw_samples,
+    run_verification_loop,
+)
 
 from synthline._runtime import Runtime, create_runtime
 from synthline.types import (
@@ -205,12 +207,6 @@ class Synthline:
             "prompt_approach": "PACE",
         }
 
-        # Wrap progress callback to add message parameter
-        _progress_cb = None
-        if on_progress:
-            async def _progress_cb(progress: float) -> None:
-                await on_progress(progress, "Optimizing prompts")
-
         self._runtime.pace.set_align_scorer(
             self._runtime.align_scorer if alpha > 0.0 else None
         )
@@ -218,7 +214,7 @@ class Synthline:
         optimized_results = await self._runtime.pace.optimize_batch(
             atomic_configs=atomic_configs,
             features=features,
-            progress_callback=_progress_cb,
+            progress_callback=on_progress,
             n_iterations=iterations,
             n_actors=actors,
             n_candidates=candidates,
@@ -228,11 +224,11 @@ class Synthline:
 
         entries = [
             PromptEntry(
-                prompt=optimized_prompt,
-                config=atomic_config,
-                score=score,
+                prompt=result.prompt,
+                config=result.config,
+                score=result.score,
             )
-            for optimized_prompt, score, atomic_config in optimized_results
+            for result in optimized_results
         ]
 
         return PromptSet(
@@ -292,12 +288,11 @@ class Synthline:
             api_keys=self._api_keys,
         )
 
-        # --- progress adapter --------------------------------------------------
-        gen_progress_cb = None
-        if on_progress:
-            async def gen_progress_cb(progress: float) -> None:
-                displayed = progress * 0.8 if verify else progress
-                await on_progress(displayed, "Generating samples")
+        # --- progress adapter (scale to 0–80% when verification follows) --------
+        gen_progress_cb = on_progress
+        if on_progress and verify:
+            async def gen_progress_cb(progress: float, message: str) -> None:
+                await on_progress(progress * 0.8, message)
 
         # --- generation --------------------------------------------------------
         gen_result = await self._runtime.generator.generate(
@@ -316,11 +311,14 @@ class Synthline:
                 await on_progress(80.0, "Verifying alignment")
 
             raw_samples, alignment_verification, verification_warnings = (
-                await self._run_verification_loop(
+                await run_verification_loop(
                     raw_samples=raw_samples,
                     features=features,
                     threshold=verify_threshold,
                     samples_needed=samples,
+                    verifier=self._runtime.align_verifier,
+                    generator=self._runtime.generator,
+                    api_keys=self._api_keys,
                     on_verification=on_verification,
                 )
             )
@@ -359,7 +357,7 @@ class Synthline:
         if on_progress:
             await on_progress(100.0, "Complete")
 
-        return Dataset(samples=formatted, metadata=metadata, raw_samples=raw_samples)
+        return Dataset(samples=formatted, metadata=metadata)
 
     # ======================================================================
     # verify (shared-base workflow)
@@ -375,8 +373,9 @@ class Synthline:
     ) -> Dataset:
         """Verify a pre-generated Dataset, regenerating rejected samples.
 
-        Used for the shared-base experimental design where C3 verifies
-        C1's output and C4 verifies C2's output.
+        Loads the dataset's formatted samples and metadata, reconstructs
+        internal representations, then runs alignment verification with
+        config-aware regeneration for any samples below *threshold*.
         """
         return asyncio.run(
             self.averify(
@@ -395,29 +394,35 @@ class Synthline:
         on_progress: ProgressCallback = None,
         on_verification: VerificationCallback = None,
     ) -> Dataset:
-        """Async version of :meth:`verify`."""
-        if dataset.raw_samples is None:
-            raise ValueError(
-                "Dataset has no raw_samples. "
-                "Re-generate with current SDK version to enable verification."
-            )
+        """Async version of :meth:`verify`.
 
+        Reconstructs the internal raw-sample format from
+        ``dataset.samples`` + ``dataset.metadata["prompts"]`` so that no
+        intermediate representation needs to be persisted.
+        """
         started = time.perf_counter()
         run_id = str(uuid4())
-        raw_samples = dataset.raw_samples
+
+        # Reconstruct raw samples from formatted samples + metadata prompts
+        prompt_lookup = build_prompt_lookup(dataset.metadata)
+        raw_samples = reconstruct_raw_samples(dataset.samples, prompt_lookup)
+
         samples_needed = len(raw_samples)
-        spp = dataset.metadata.get("samples_per_prompt", 1)
-        features: Dict[str, Any] = {"samples_per_prompt": spp}
+        samples_per_prompt = dataset.metadata.get("samples_per_prompt", 1)
+        features: Dict[str, Any] = {"samples_per_prompt": samples_per_prompt}
 
         if on_progress:
             await on_progress(0.0, "Verifying alignment")
 
         accepted, alignment_verification, verification_warnings = (
-            await self._run_verification_loop(
+            await run_verification_loop(
                 raw_samples=raw_samples,
                 features=features,
                 threshold=threshold,
                 samples_needed=samples_needed,
+                verifier=self._runtime.align_verifier,
+                generator=self._runtime.generator,
+                api_keys=self._api_keys,
                 on_verification=on_verification,
             )
         )
@@ -446,174 +451,7 @@ class Synthline:
         if on_progress:
             await on_progress(100.0, "Complete")
 
-        return Dataset(samples=formatted, metadata=metadata, raw_samples=accepted)
-
-    # -- verification loop --------------------------------------------------
-
-    async def _run_verification_loop(
-        self,
-        raw_samples: List[Dict[str, Any]],
-        features: Dict[str, Any],
-        threshold: float,
-        samples_needed: int,
-        on_verification: VerificationCallback = None,
-    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[str]]:
-        """Verify samples, regenerating rejected ones up to MAX_RETRIES."""
-        verifier = self._runtime.align_verifier
-        all_accepted: List[Dict[str, Any]] = []
-        accepted_scores: List[float] = []
-        rejected_scores: List[float] = []
-        accepted_per_attempt: List[int] = []
-        attempt_trace: List[Dict[str, Any]] = []
-        warnings: List[str] = []
-        total_generated = len(raw_samples)
-        termination_reason = "max_retries_reached"
-        attempts_used = 0
-        pending = raw_samples
-        total_attempts = AlignVerifier.MAX_RETRIES + 1
-
-        for attempt in range(total_attempts):
-            attempts_used = attempt + 1
-            started = time.perf_counter()
-
-            if on_verification:
-                progress = 80.0 + ((attempt / total_attempts) * 19.0)
-                await on_verification(
-                    attempt + 1, total_attempts,
-                    len(all_accepted), samples_needed, progress,
-                )
-
-            accepted, rejected = verifier.verify(pending, threshold)
-            rejected_scores.extend(score for _, score in rejected)
-
-            slots_remaining = samples_needed - len(all_accepted)
-            added = 0
-            for sample, score in accepted[:slots_remaining]:
-                all_accepted.append(sample)
-                accepted_scores.append(score)
-                added += 1
-
-            accepted_per_attempt.append(added)
-
-            if on_verification:
-                ratio = len(all_accepted) / samples_needed if samples_needed > 0 else 1.0
-                progress = 80.0 + (((attempt + ratio) / total_attempts) * 19.0)
-                await on_verification(
-                    attempt + 1, total_attempts,
-                    len(all_accepted), samples_needed, progress,
-                )
-
-            config_groups = _group_rejected_by_config(rejected)
-
-            attempt_trace.append({
-                "attempt": attempt + 1,
-                "pending_in": len(pending),
-                "accepted": len(accepted),
-                "rejected": len(rejected),
-                "accepted_added": added,
-                "rejected_configs": len(config_groups),
-                "duration_ms": int((time.perf_counter() - started) * 1000),
-            })
-
-            if len(all_accepted) >= samples_needed:
-                termination_reason = "count_reached"
-                break
-            if not rejected:
-                termination_reason = "no_rejected_remaining"
-                break
-            if attempt == AlignVerifier.MAX_RETRIES:
-                break
-
-            # Config-aware regeneration: replace rejected samples from
-            # their *originating* config (matches paper §3.4, line 280).
-            deficit = samples_needed - len(all_accepted)
-            spp = int(features.get("samples_per_prompt", 1))
-
-            config_requests: List[Tuple[Dict[str, Any], int]] = []
-            remaining = deficit
-            for _key, (config, rejected_count) in config_groups.items():
-                if remaining <= 0:
-                    break
-                count = min(rejected_count, remaining)
-                config_requests.append((config, count))
-                remaining -= count
-
-            if not config_requests:
-                termination_reason = "no_configs_to_regenerate"
-                break
-
-            regen_result = await self._runtime.generator.generate_for_configs(
-                config_requests=config_requests,
-                samples_per_prompt=spp,
-                api_keys=self._api_keys,
-            )
-            pending = regen_result.samples
-            total_generated += len(pending)
-
-            if regen_result.fewer_samples_received and "fewer_samples_received" not in warnings:
-                warnings.append("fewer_samples_received")
-            if regen_result.parsing_degraded and "parsing_degraded" not in warnings:
-                warnings.append("parsing_degraded")
-            if not pending:
-                termination_reason = "generation_returned_empty"
-                break
-
-        alignment_deficit = max(samples_needed - len(all_accepted), 0)
-        if alignment_deficit > 0 and "verification_deficit" not in warnings:
-            warnings.append("verification_deficit")
-
-        alignment_verification = _build_alignment_verification(
-            requested=samples_needed,
-            threshold=threshold,
-            max_retries=AlignVerifier.MAX_RETRIES,
-            attempts_used=attempts_used,
-            accepted_samples=len(all_accepted),
-            alignment_deficit=alignment_deficit,
-            termination_reason=termination_reason,
-            accepted_scores=accepted_scores,
-            rejected_scores=rejected_scores,
-            accepted_per_attempt=accepted_per_attempt,
-            attempt_trace=attempt_trace,
-            total_generated_across_retries=total_generated,
-        )
-        return all_accepted, alignment_verification, warnings
-
-
-# ======================================================================
-# Verification helpers
-# ======================================================================
-
-
-_CONFIG_KEY_EXCLUDE = frozenset({"prompt", "optimized_prompt", "pace_score"})
-
-
-def _config_key(config: Dict[str, Any]) -> str:
-    """Stable, hashable identity for a sample's generation config.
-
-    Excludes derived/meta keys (``prompt``, ``optimized_prompt``,
-    ``pace_score``) that do not define the atomic configuration.
-    """
-    filtered = {k: v for k, v in config.items() if k not in _CONFIG_KEY_EXCLUDE}
-    return json.dumps(filtered, sort_keys=True, ensure_ascii=True)
-
-
-def _group_rejected_by_config(
-    rejected: List[Tuple[Dict[str, Any], float]],
-) -> Dict[str, Tuple[Dict[str, Any], int]]:
-    """Group rejected ``(sample, score)`` tuples by generation config.
-
-    Returns ``{config_key: (representative_config, rejection_count)}``.
-    """
-    groups: Dict[str, Tuple[Dict[str, Any], int]] = {}
-    for sample, _score in rejected:
-        config = sample.get("config", {})
-        key = _config_key(config)
-        if key in groups:
-            rep, count = groups[key]
-            groups[key] = (rep, count + 1)
-        else:
-            groups[key] = (config, 1)
-    return groups
+        return Dataset(samples=formatted, metadata=metadata)
 
 
 # ======================================================================
@@ -740,45 +578,3 @@ def _extract_constraint_features(config: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _build_alignment_verification(
-    requested: int,
-    *,
-    threshold: float,
-    max_retries: int,
-    attempts_used: int,
-    accepted_samples: int,
-    alignment_deficit: int,
-    termination_reason: str,
-    accepted_scores: List[float],
-    rejected_scores: List[float],
-    accepted_per_attempt: List[int],
-    attempt_trace: List[Dict[str, Any]],
-    total_generated_across_retries: int,
-) -> Dict[str, Any]:
-    return {
-        "alignment_threshold": threshold,
-        "max_retries": max_retries,
-        "attempts_used": attempts_used,
-        "requested_samples": requested,
-        "accepted_samples": accepted_samples,
-        "alignment_deficit": alignment_deficit,
-        "termination_reason": termination_reason,
-        "scores": {
-            "accepted": _score_stats(accepted_scores),
-            "rejected": _score_stats(rejected_scores),
-        },
-        "total_generated_across_retries": total_generated_across_retries,
-        "accepted_per_attempt": accepted_per_attempt,
-        "attempt_trace": attempt_trace,
-    }
-
-
-def _score_stats(scores: List[float]) -> Dict[str, Any]:
-    if not scores:
-        return {"count": 0, "min": None, "mean": None, "max": None}
-    return {
-        "count": len(scores),
-        "min": round(min(scores), 4),
-        "mean": round(sum(scores) / len(scores), 4),
-        "max": round(max(scores), 4),
-    }

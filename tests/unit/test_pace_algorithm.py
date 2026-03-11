@@ -64,10 +64,9 @@ def test_optimize_batch_flow(pace_instance, mock_llm):
         )
 
         assert len(results) == 1
-        best_prompt, best_score, _ = results[0]
-        assert best_prompt == "Write a user story for login including acceptance criteria"
-        assert isinstance(best_score, float)
-        assert best_score > 0.0
+        assert results[0].prompt == "Write a user story for login including acceptance criteria"
+        assert isinstance(results[0].score, float)
+        assert results[0].score > 0.0
         assert mock_llm.get_batch_completions.call_count >= 4
 
     asyncio.run(run())
@@ -124,7 +123,7 @@ def test_optimize_batch_skips_failed_configs(pace_instance):
 
         # One config failed, one succeeded — returns only successful
         assert len(results) == 1
-        assert results[0][0] == "prompt_ok"
+        assert results[0].prompt == "prompt_ok"
 
     asyncio.run(run())
 

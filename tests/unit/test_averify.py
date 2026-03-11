@@ -26,6 +26,8 @@ def _make_config(config_id: str) -> dict:
         "classification_label": "Test",
         "classification_label_def": "A test label",
         "prompt": f"Generate data for config {config_id}",
+        # Top-level feature keys (as real configs have — format_sample uses these)
+        f"Feat_{config_id}": config_id,
     }
 
 
@@ -35,6 +37,28 @@ def _make_raw_sample(text: str, config: dict) -> dict:
 
 def _scored(sample, score):
     return (sample, score)
+
+
+def _make_dataset_with_metadata(samples_data, config_id="A"):
+    """Build a Dataset with formatted samples and prompts metadata."""
+    config = _make_config(config_id)
+    formatted = [
+        Dataset.format_sample(s["text"], s["config"])
+        for s in samples_data
+    ]
+    features = {k: v for k, v in formatted[0].items() if k not in ("Text", "Label")} if formatted else {}
+    prompts_meta = [{
+        "prompt": config["prompt"],
+        "features": features,
+        "samples_produced": len(formatted),
+        "optimized": False,
+    }]
+    metadata = {
+        "run_id": "test-run",
+        "samples_per_prompt": 20,
+        "prompts": prompts_meta,
+    }
+    return Dataset(samples=formatted, metadata=metadata)
 
 
 class _FakeClient:
@@ -50,11 +74,7 @@ class _FakeClient:
         self._api_keys = api_keys or {}
 
     async def run_averify(self, dataset, threshold=0.5):
-        # Bind both averify and _run_verification_loop from Synthline
         return await Synthline.averify(self, dataset, threshold=threshold)
-
-    async def _run_verification_loop(self, *args, **kwargs):
-        return await Synthline._run_verification_loop(self, *args, **kwargs)
 
 
 # ======================================================================
@@ -63,46 +83,24 @@ class _FakeClient:
 
 
 class TestDatasetPersistence:
-    def test_save_writes_raw_samples_json(self):
-        """Dataset.save() writes raw_samples.json when raw_samples is present."""
-        config = _make_config("A")
-        raw = [_make_raw_sample("hello", config)]
+    def test_save_writes_csv_and_metadata(self):
+        """Dataset.save() writes data.csv and metadata.json (no raw_samples.json)."""
         ds = Dataset(
             samples=[{"Text": "hello", "Label": "Test"}],
             metadata={"run_id": "test-123"},
-            raw_samples=raw,
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ds.save(tmpdir)
-            assert os.path.exists(os.path.join(tmpdir, "raw_samples.json"))
             assert os.path.exists(os.path.join(tmpdir, "data.csv"))
             assert os.path.exists(os.path.join(tmpdir, "metadata.json"))
-
-            loaded = json.loads(open(os.path.join(tmpdir, "raw_samples.json")).read())
-            assert len(loaded) == 1
-            assert loaded[0]["text"] == "hello"
-
-    def test_save_skips_raw_samples_when_none(self):
-        """Dataset.save() does not write raw_samples.json when raw_samples is None."""
-        ds = Dataset(
-            samples=[{"Text": "hello"}],
-            metadata={"run_id": "test-456"},
-        )
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ds.save(tmpdir)
             assert not os.path.exists(os.path.join(tmpdir, "raw_samples.json"))
-            assert os.path.exists(os.path.join(tmpdir, "data.csv"))
 
-    def test_load_round_trips_all_files(self):
-        """Dataset.load() restores samples, metadata, and raw_samples."""
-        config = _make_config("A")
-        raw = [_make_raw_sample("sample text", config)]
+    def test_load_round_trips(self):
+        """Dataset.load() restores samples and metadata."""
         original = Dataset(
             samples=[{"Text": "sample text", "Label": "Test"}],
             metadata={"run_id": "rt-789", "samples_per_prompt": 20},
-            raw_samples=raw,
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -113,23 +111,46 @@ class TestDatasetPersistence:
             assert loaded.samples[0]["Text"] == "sample text"
             assert loaded.metadata["run_id"] == "rt-789"
             assert loaded.metadata["samples_per_prompt"] == 20
-            assert loaded.raw_samples is not None
-            assert len(loaded.raw_samples) == 1
-            assert loaded.raw_samples[0]["text"] == "sample text"
 
-    def test_load_handles_missing_raw_samples(self):
-        """Dataset.load() returns raw_samples=None for old datasets."""
-        ds = Dataset(
-            samples=[{"Text": "old"}],
-            metadata={"run_id": "old-1"},
-        )
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ds.save(tmpdir)
-            loaded = Dataset.load(tmpdir)
+# ======================================================================
+# unformat_sample tests
+# ======================================================================
 
-            assert loaded.raw_samples is None
-            assert len(loaded.samples) == 1
+
+class TestUnformatSample:
+    def test_round_trip(self):
+        """format_sample → unformat_sample preserves text, label, and features."""
+        config = _make_config("A")
+        formatted = Dataset.format_sample("hello world", config)
+        raw = Dataset.unformat_sample(formatted, prompt_text="Generate data for config A")
+
+        assert raw["text"] == "hello world"
+        assert raw["config"]["classification_label"] == "Test"
+        assert raw["config"]["prompt"] == "Generate data for config A"
+        constraints = raw["config"]["__fm_constraints__"]
+        labels = {c["label"] for c in constraints}
+        assert "Feat_A" in labels
+
+    def test_without_prompt(self):
+        """unformat_sample works without prompt text."""
+        formatted = {"Text": "hi", "Label": "X", "Domain": "D1"}
+        raw = Dataset.unformat_sample(formatted)
+
+        assert raw["text"] == "hi"
+        assert raw["config"]["classification_label"] == "X"
+        assert "prompt" not in raw["config"]
+        assert raw["config"]["Domain"] == "D1"
+
+    def test_features_as_top_level_config_keys(self):
+        """Feature columns are preserved as top-level config keys."""
+        formatted = {"Text": "t", "Label": "L", "Domain": "D", "Context": "C"}
+        raw = Dataset.unformat_sample(formatted)
+
+        assert raw["config"]["Domain"] == "D"
+        assert raw["config"]["Context"] == "C"
+        constraints = {c["label"]: c["value"] for c in raw["config"]["__fm_constraints__"]}
+        assert constraints == {"Domain": "D", "Context": "C"}
 
 
 # ======================================================================
@@ -138,17 +159,6 @@ class TestDatasetPersistence:
 
 
 class TestAverify:
-    def test_averify_raises_without_raw_samples(self):
-        """averify() raises ValueError when raw_samples is None."""
-        ds = Dataset(samples=[], metadata={})
-
-        verifier = MagicMock()
-        generator = AsyncMock()
-        client = _FakeClient(verifier, generator)
-
-        with pytest.raises(ValueError, match="no raw_samples"):
-            asyncio.run(client.run_averify(ds))
-
     def test_averify_all_accepted(self):
         """All samples pass verification → returned as-is."""
 
@@ -158,15 +168,16 @@ class TestAverify:
                 _make_raw_sample("s1", config),
                 _make_raw_sample("s2", config),
             ]
-            ds = Dataset(
-                samples=[],
-                metadata={"run_id": "src-1", "samples_per_prompt": 20},
-                raw_samples=raw,
-            )
+            ds = _make_dataset_with_metadata(raw, "A")
+
+            reconstructed = [
+                Dataset.unformat_sample(s, config["prompt"])
+                for s in ds.samples
+            ]
 
             verifier = MagicMock()
             verifier.verify.return_value = (
-                [_scored(s, 0.9) for s in raw],
+                [_scored(s, 0.9) for s in reconstructed],
                 [],
             )
             generator = AsyncMock()
@@ -176,7 +187,7 @@ class TestAverify:
 
             assert len(result.samples) == 2
             assert result.metadata["verify"] is True
-            assert result.metadata["source_run_id"] == "src-1"
+            assert result.metadata["source_run_id"] == "test-run"
             assert result.metadata["alignment_verification"]["termination_reason"] == "count_reached"
             generator.generate_for_configs.assert_not_called()
 
@@ -187,19 +198,19 @@ class TestAverify:
 
         async def run():
             config = _make_config("A")
-            good = _make_raw_sample("good", config)
-            bad = _make_raw_sample("bad", config)
-            regen = _make_raw_sample("regen", config)
+            raw = [
+                _make_raw_sample("good", config),
+                _make_raw_sample("bad", config),
+            ]
+            ds = _make_dataset_with_metadata(raw, "A")
 
-            ds = Dataset(
-                samples=[],
-                metadata={"run_id": "src-2", "samples_per_prompt": 20},
-                raw_samples=[good, bad],
-            )
+            recon_good = Dataset.unformat_sample(ds.samples[0], config["prompt"])
+            recon_bad = Dataset.unformat_sample(ds.samples[1], config["prompt"])
+            regen = _make_raw_sample("regen", config)
 
             verifier = MagicMock()
             verifier.verify.side_effect = [
-                ([_scored(good, 0.8)], [_scored(bad, 0.3)]),
+                ([_scored(recon_good, 0.8)], [_scored(recon_bad, 0.3)]),
                 ([_scored(regen, 0.9)], []),
             ]
 
@@ -213,7 +224,6 @@ class TestAverify:
 
             assert len(result.samples) == 2
             generator.generate_for_configs.assert_called_once()
-            # spp should come from metadata
             call_kwargs = generator.generate_for_configs.call_args.kwargs
             assert call_kwargs["samples_per_prompt"] == 20
 
@@ -225,57 +235,24 @@ class TestAverify:
         async def run():
             config = _make_config("A")
             raw = [_make_raw_sample("s1", config)]
-            ds = Dataset(
-                samples=[],
-                metadata={
-                    "run_id": "original-run",
-                    "llm": "test-model",
-                    "samples_per_prompt": 20,
-                    "optimized": False,
-                },
-                raw_samples=raw,
-            )
+            ds = _make_dataset_with_metadata(raw, "A")
+            ds.metadata["llm"] = "test-model"
+            ds.metadata["optimized"] = False
+
+            reconstructed = Dataset.unformat_sample(ds.samples[0], config["prompt"])
 
             verifier = MagicMock()
-            verifier.verify.return_value = ([_scored(raw[0], 0.9)], [])
+            verifier.verify.return_value = ([_scored(reconstructed, 0.9)], [])
             generator = AsyncMock()
             client = _FakeClient(verifier, generator)
 
             result = await client.run_averify(ds, threshold=0.6)
 
-            # Original fields preserved
             assert result.metadata["llm"] == "test-model"
             assert result.metadata["optimized"] is False
-            # New fields added
             assert result.metadata["verify"] is True
-            assert result.metadata["source_run_id"] == "original-run"
-            # run_id is new (not the original)
-            assert result.metadata["run_id"] != "original-run"
-
-        asyncio.run(run())
-
-    def test_averify_returns_raw_samples(self):
-        """averify() populates raw_samples on the returned Dataset."""
-
-        async def run():
-            config = _make_config("A")
-            raw = [_make_raw_sample("s1", config)]
-            ds = Dataset(
-                samples=[],
-                metadata={"samples_per_prompt": 1},
-                raw_samples=raw,
-            )
-
-            verifier = MagicMock()
-            verifier.verify.return_value = ([_scored(raw[0], 0.9)], [])
-            generator = AsyncMock()
-            client = _FakeClient(verifier, generator)
-
-            result = await client.run_averify(ds, threshold=0.6)
-
-            assert result.raw_samples is not None
-            assert len(result.raw_samples) == 1
-            assert result.raw_samples[0]["text"] == "s1"
+            assert result.metadata["source_run_id"] == "test-run"
+            assert result.metadata["run_id"] != "test-run"
 
         asyncio.run(run())
 
@@ -289,27 +266,23 @@ class TestAverify:
                 _make_raw_sample("bad", config),
             ]
 
-            # Simulate C1 dataset
-            c1 = Dataset(
-                samples=[{"Text": "good", "Label": "Test"}, {"Text": "bad", "Label": "Test"}],
-                metadata={"run_id": "c1-run", "samples_per_prompt": 20},
-                raw_samples=raw,
-            )
+            c1 = _make_dataset_with_metadata(raw, "A")
+            c1.metadata["run_id"] = "c1-run"
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 c1_path = os.path.join(tmpdir, "c1")
                 c1.save(c1_path)
 
-                # Load C1
                 loaded_c1 = Dataset.load(c1_path)
-                assert loaded_c1.raw_samples is not None
-                assert len(loaded_c1.raw_samples) == 2
+                assert len(loaded_c1.samples) == 2
 
-                # Verify to produce C3
+                recon_good = Dataset.unformat_sample(loaded_c1.samples[0], config["prompt"])
+                recon_bad = Dataset.unformat_sample(loaded_c1.samples[1], config["prompt"])
                 regen = _make_raw_sample("regen", config)
+
                 verifier = MagicMock()
                 verifier.verify.side_effect = [
-                    ([_scored(raw[0], 0.8)], [_scored(raw[1], 0.3)]),
+                    ([_scored(recon_good, 0.8)], [_scored(recon_bad, 0.3)]),
                     ([_scored(regen, 0.9)], []),
                 ]
                 generator = AsyncMock()
@@ -320,14 +293,71 @@ class TestAverify:
 
                 c3 = await client.run_averify(loaded_c1, threshold=0.6)
 
-                # Save C3
                 c3_path = os.path.join(tmpdir, "c3")
                 c3.save(c3_path)
 
-                # Load C3 and verify
                 loaded_c3 = Dataset.load(c3_path)
                 assert len(loaded_c3.samples) == 2
                 assert loaded_c3.metadata["source_run_id"] == "c1-run"
-                assert loaded_c3.raw_samples is not None
+                assert not os.path.exists(os.path.join(c3_path, "raw_samples.json"))
+
+        asyncio.run(run())
+
+    def test_averify_empty_dataset(self):
+        """averify() handles empty datasets gracefully."""
+
+        async def run():
+            ds = Dataset(
+                samples=[],
+                metadata={"samples_per_prompt": 1, "prompts": []},
+            )
+
+            verifier = MagicMock()
+            verifier.verify.return_value = ([], [])
+            generator = AsyncMock()
+            client = _FakeClient(verifier, generator)
+
+            result = await client.run_averify(ds, threshold=0.6)
+            assert len(result.samples) == 0
+
+        asyncio.run(run())
+
+    def test_averify_after_csv_round_trip(self):
+        """save → load → averify works correctly despite CSV string coercion."""
+
+        async def run():
+            config = _make_config("A")
+            raw = [
+                _make_raw_sample("s1", config),
+                _make_raw_sample("s2", config),
+            ]
+            ds = _make_dataset_with_metadata(raw, "A")
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                ds.save(tmpdir)
+                loaded = Dataset.load(tmpdir)
+
+                # After CSV round-trip, all values are strings
+                assert all(isinstance(v, str) for v in loaded.samples[0].values())
+
+                reconstructed = [
+                    Dataset.unformat_sample(s, config["prompt"])
+                    for s in loaded.samples
+                ]
+
+                verifier = MagicMock()
+                verifier.verify.return_value = (
+                    [_scored(s, 0.9) for s in reconstructed],
+                    [],
+                )
+                generator = AsyncMock()
+                client = _FakeClient(verifier, generator)
+
+                result = await client.run_averify(loaded, threshold=0.6)
+
+                assert len(result.samples) == 2
+                assert result.metadata["verify"] is True
+                # Prompt lookup should still work after string coercion
+                assert result.metadata["alignment_verification"]["termination_reason"] == "count_reached"
 
         asyncio.run(run())

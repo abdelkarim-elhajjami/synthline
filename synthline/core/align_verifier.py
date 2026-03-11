@@ -8,9 +8,8 @@ import json
 from typing import Any, Dict, List, Tuple
 
 from synthline.core.align_scorer import AlignScorer
+from synthline.types import ScoredSample
 from synthline.utils.logger import Logger
-
-ScoredSample = Tuple[Dict[str, Any], float]
 
 
 class AlignVerifier:

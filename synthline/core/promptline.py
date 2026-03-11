@@ -20,7 +20,7 @@ class Promptline:
         glossary: Optional[Dict[str, str]] = None,
     ):
         self._fm = fm
-        self._expander = FMResolver(fm=fm)
+        self._resolver = FMResolver(fm=fm)
         self._glossary = glossary or {}
         self._glossary_lookup = {str(key).lower(): str(value) for key, value in self._glossary.items()}
 
@@ -35,7 +35,7 @@ class Promptline:
             if (key not in OPERATING_FIELDS or key in LABEL_FIELDS)
             and not str(key).startswith("__")
         }
-        expanded = self._expander.resolve(fm_configuration)
+        expanded = self._resolver.resolve(fm_configuration)
         configs = []
         for variant in expanded:
             config = dict(base)
@@ -104,7 +104,7 @@ class Promptline:
 
     def _raw_values(self, value: Any) -> List[str]:
         if isinstance(value, list):
-            return [str(v).strip() for v in value if str(v).strip()]
+            return [s for v in value if (s := str(v).strip())]
         if value in (None, ""):
             return []
         return [str(value).strip()]
@@ -145,10 +145,10 @@ class Promptline:
 
     def get_atomic_prompts(self, features: Dict[str, Any]) -> List[Dict[str, Any]]:
         atomic_configs = self.get_atomic_configurations(features)
-        spp = max(1, int(features.get("samples_per_prompt") or 1))
+        samples_per_prompt = max(1, int(features.get("samples_per_prompt") or 1))
         atomic_prompts = []
         for config in atomic_configs:
-            prompt = self.build(config, samples_per_prompt=spp)
+            prompt = self.build(config, samples_per_prompt=samples_per_prompt)
             atomic_prompts.append({"config": config, "prompt": prompt})
         return atomic_prompts
 

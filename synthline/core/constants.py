@@ -2,6 +2,14 @@
 from typing import Any, Dict, List, Tuple
 
 # ---------------------------------------------------------------------------
+# PACE event types — used by pace.py and logger.py
+# ---------------------------------------------------------------------------
+
+PACE_EVENT_NEW_BEST = "NEW BEST PROMPT"
+PACE_EVENT_FINAL = "FINAL OPTIMIZED PROMPT"
+PACE_EVENTS = frozenset({PACE_EVENT_NEW_BEST, PACE_EVENT_FINAL})
+
+# ---------------------------------------------------------------------------
 # Semantic field groups — each frozenset collects features dict keys that
 # belong to a single concern.  OPERATING_FIELDS is the union of all groups
 # and is the only set that downstream code (Promptline, Dataset, Logger)

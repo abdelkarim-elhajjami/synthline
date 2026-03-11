@@ -12,6 +12,12 @@ from synthline.utils.logger import Logger
 
 class LLMClient:
     """Client for OpenAI, OpenRouter, and HuggingFace APIs."""
+
+    REQUEST_TIMEOUT = 120
+    MAX_RETRIES = 5
+    MAX_CONCURRENCY = 100
+    DEFAULT_MAX_TOKENS = 32768
+
     def __init__(self,
                  logger: Logger,
                  openai_key: Optional[str] = None,
@@ -30,9 +36,9 @@ class LLMClient:
         self._hf_client = None
 
         self._logger = logger
-        self._request_timeout = 120
-        self._max_retries = 5
-        self._max_concurrency = 100
+        self._request_timeout = self.REQUEST_TIMEOUT
+        self._max_retries = self.MAX_RETRIES
+        self._max_concurrency = self.MAX_CONCURRENCY
         self._semaphore = asyncio.Semaphore(self._max_concurrency)
 
     @staticmethod
@@ -171,7 +177,7 @@ class LLMClient:
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": temperature,
                     "top_p": top_p,
-                    "max_tokens": 32768,
+                    "max_tokens": self.DEFAULT_MAX_TOKENS,
                 }
                 if response_format:
                     if provider == "ollama" and "json_schema" in response_format:
