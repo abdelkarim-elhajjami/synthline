@@ -80,7 +80,7 @@ prompts = sl.build_prompts(
 )
 
 # 2. Generate
-output = sl.generate(prompts=prompts, samples=1000)
+output = await sl.generate(prompts=prompts, samples=1000)
 
 # 3. Export
 output.save("output/")       # data.csv, metadata.json
@@ -90,19 +90,17 @@ df = output.to_dataframe()   # pandas DataFrame
 ### With PACE Optimization
 
 ```python
-optimized = sl.optimize(prompts, alpha=0.5, iterations=1, actors=4, candidates=2)
-output = sl.generate(prompts=optimized, samples=1000)
+optimized = await sl.optimize(prompts, alpha=0.5, iterations=1, actors=4, candidates=2)
+output = await sl.generate(prompts=optimized, samples=1000)
 ```
 
 ### With Alignment Verification
 
 ```python
-output = sl.generate(prompts=prompts, samples=1000, verify=True, verify_threshold=0.6)
+output = await sl.generate(prompts=prompts, samples=1000, verify=True, verify_threshold=0.6)
 ```
 
-### Async API
-
-`optimize` and `generate` have async counterparts: `aoptimize`, `agenerate`. `build_prompts` is synchronous (no LLM call).
+All SDK methods are async except `build_prompts` (no LLM call).
 
 ---
 

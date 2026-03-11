@@ -32,7 +32,7 @@ def config_key(config: Dict[str, Any]) -> str:
 
 
 # ======================================================================
-# Raw-sample reconstruction (for averify)
+# Raw-sample reconstruction (for verify)
 # ======================================================================
 
 

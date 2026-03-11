@@ -1,7 +1,6 @@
 """Synthline SDK client — the public entry point."""
 from __future__ import annotations
 
-import asyncio
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -152,7 +151,7 @@ class Synthline:
     # optimize
     # ======================================================================
 
-    def optimize(
+    async def optimize(
         self,
         prompts: PromptSet,
         *,
@@ -164,30 +163,6 @@ class Synthline:
         on_prompt_update: PromptUpdateCallback = None,
     ) -> PromptSet:
         """Optimize prompts via PACE.  Returns a new PromptSet with updated text + scores."""
-        return asyncio.run(
-            self.aoptimize(
-                prompts,
-                alpha=alpha,
-                iterations=iterations,
-                actors=actors,
-                candidates=candidates,
-                on_progress=on_progress,
-                on_prompt_update=on_prompt_update,
-            )
-        )
-
-    async def aoptimize(
-        self,
-        prompts: PromptSet,
-        *,
-        alpha: float = 0.5,
-        iterations: int = 1,
-        actors: int = 4,
-        candidates: int = 2,
-        on_progress: ProgressCallback = None,
-        on_prompt_update: PromptUpdateCallback = None,
-    ) -> PromptSet:
-        """Async version of :meth:`optimize`."""
         # Rebuild atomic configs with embedded prompts
         atomic_configs: List[Dict[str, Any]] = []
         for entry in prompts.entries:
@@ -244,7 +219,7 @@ class Synthline:
     # generate
     # ======================================================================
 
-    def generate(
+    async def generate(
         self,
         prompts: PromptSet,
         samples: int,
@@ -255,28 +230,6 @@ class Synthline:
         on_verification: VerificationCallback = None,
     ) -> Dataset:
         """Generate synthetic data from a PromptSet."""
-        return asyncio.run(
-            self.agenerate(
-                prompts,
-                samples,
-                verify=verify,
-                verify_threshold=verify_threshold,
-                on_progress=on_progress,
-                on_verification=on_verification,
-            )
-        )
-
-    async def agenerate(
-        self,
-        prompts: PromptSet,
-        samples: int,
-        *,
-        verify: bool = False,
-        verify_threshold: float = 0.5,
-        on_progress: ProgressCallback = None,
-        on_verification: VerificationCallback = None,
-    ) -> Dataset:
-        """Async version of :meth:`generate`."""
         started = time.perf_counter()
         run_id = str(uuid4())
 
@@ -363,7 +316,7 @@ class Synthline:
     # verify (shared-base workflow)
     # ======================================================================
 
-    def verify(
+    async def verify(
         self,
         dataset: Dataset,
         *,
@@ -373,29 +326,6 @@ class Synthline:
     ) -> Dataset:
         """Verify a pre-generated Dataset, regenerating rejected samples.
 
-        Loads the dataset's formatted samples and metadata, reconstructs
-        internal representations, then runs alignment verification with
-        config-aware regeneration for any samples below *threshold*.
-        """
-        return asyncio.run(
-            self.averify(
-                dataset,
-                threshold=threshold,
-                on_progress=on_progress,
-                on_verification=on_verification,
-            )
-        )
-
-    async def averify(
-        self,
-        dataset: Dataset,
-        *,
-        threshold: float = 0.5,
-        on_progress: ProgressCallback = None,
-        on_verification: VerificationCallback = None,
-    ) -> Dataset:
-        """Async version of :meth:`verify`.
-
         Reconstructs the internal raw-sample format from
         ``dataset.samples`` + ``dataset.metadata["prompts"]`` so that no
         intermediate representation needs to be persisted.
@@ -403,9 +333,14 @@ class Synthline:
         started = time.perf_counter()
         run_id = str(uuid4())
 
-        # Reconstruct raw samples from formatted samples + metadata prompts
+        # Reconstruct raw samples from formatted samples + metadata prompts.
+        # CSV serialisation strips operating fields (llm, temperature, top_p)
+        # so we restore them from the instance for config-aware regeneration.
         prompt_lookup = build_prompt_lookup(dataset.metadata)
         raw_samples = reconstruct_raw_samples(dataset.samples, prompt_lookup)
+        llm_settings = {"llm": self._llm, "temperature": self._temperature, "top_p": self._top_p}
+        for sample in raw_samples:
+            sample["config"].update(llm_settings)
 
         samples_needed = len(raw_samples)
         samples_per_prompt = dataset.metadata.get("samples_per_prompt", 1)

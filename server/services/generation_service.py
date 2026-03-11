@@ -72,7 +72,7 @@ async def run_generation(
             )
 
             if str(features.get("prompt_approach", "")).upper() == "PACE":
-                prompts = await sl.aoptimize(
+                prompts = await sl.optimize(
                     prompts,
                     alpha=float(features.get("pace_alpha", 0.5)),
                     iterations=int(features.get("pace_iterations", 1)),
@@ -81,7 +81,7 @@ async def run_generation(
                 )
 
         total_samples = int(features.get("total_samples", 0))
-        dataset = await sl.agenerate(
+        dataset = await sl.generate(
             prompts,
             samples=total_samples,
             verify=align_verify,

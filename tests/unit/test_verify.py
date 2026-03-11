@@ -1,4 +1,4 @@
-"""Tests for the shared-base verification workflow (averify + Dataset persistence)."""
+"""Tests for the shared-base verification workflow (verify + Dataset persistence)."""
 
 import asyncio
 import json
@@ -62,7 +62,7 @@ def _make_dataset_with_metadata(samples_data, config_id="A"):
 
 
 class _FakeClient:
-    """Minimal stand-in for Synthline to call averify directly."""
+    """Minimal stand-in for Synthline to call verify directly."""
 
     def __init__(self, verifier, generator, api_keys=None):
         self._runtime = MagicMock()
@@ -73,8 +73,8 @@ class _FakeClient:
         self._top_p = 1.0
         self._api_keys = api_keys or {}
 
-    async def run_averify(self, dataset, threshold=0.5):
-        return await Synthline.averify(self, dataset, threshold=threshold)
+    async def run_verify(self, dataset, threshold=0.5):
+        return await Synthline.verify(self, dataset, threshold=threshold)
 
 
 # ======================================================================
@@ -154,12 +154,12 @@ class TestUnformatSample:
 
 
 # ======================================================================
-# averify tests
+# verify tests
 # ======================================================================
 
 
-class TestAverify:
-    def test_averify_all_accepted(self):
+class TestVerify:
+    def test_verify_all_accepted(self):
         """All samples pass verification → returned as-is."""
 
         async def run():
@@ -183,17 +183,17 @@ class TestAverify:
             generator = AsyncMock()
             client = _FakeClient(verifier, generator)
 
-            result = await client.run_averify(ds, threshold=0.6)
+            dataset = await client.run_verify(ds, threshold=0.6)
 
-            assert len(result.samples) == 2
-            assert result.metadata["verify"] is True
-            assert result.metadata["source_run_id"] == "test-run"
-            assert result.metadata["alignment_verification"]["termination_reason"] == "count_reached"
+            assert len(dataset.samples) == 2
+            assert dataset.metadata["verify"] is True
+            assert dataset.metadata["source_run_id"] == "test-run"
+            assert dataset.metadata["alignment_verification"]["termination_reason"] == "count_reached"
             generator.generate_for_configs.assert_not_called()
 
         asyncio.run(run())
 
-    def test_averify_with_regeneration(self):
+    def test_verify_with_regeneration(self):
         """Some samples rejected → regenerated from same config."""
 
         async def run():
@@ -220,16 +220,16 @@ class TestAverify:
             )
 
             client = _FakeClient(verifier, generator)
-            result = await client.run_averify(ds, threshold=0.6)
+            dataset = await client.run_verify(ds, threshold=0.6)
 
-            assert len(result.samples) == 2
+            assert len(dataset.samples) == 2
             generator.generate_for_configs.assert_called_once()
             call_kwargs = generator.generate_for_configs.call_args.kwargs
             assert call_kwargs["samples_per_prompt"] == 20
 
         asyncio.run(run())
 
-    def test_averify_preserves_original_metadata(self):
+    def test_verify_preserves_original_metadata(self):
         """Original metadata fields are preserved in the output."""
 
         async def run():
@@ -246,17 +246,17 @@ class TestAverify:
             generator = AsyncMock()
             client = _FakeClient(verifier, generator)
 
-            result = await client.run_averify(ds, threshold=0.6)
+            dataset = await client.run_verify(ds, threshold=0.6)
 
-            assert result.metadata["llm"] == "test-model"
-            assert result.metadata["optimized"] is False
-            assert result.metadata["verify"] is True
-            assert result.metadata["source_run_id"] == "test-run"
-            assert result.metadata["run_id"] != "test-run"
+            assert dataset.metadata["llm"] == "test-model"
+            assert dataset.metadata["optimized"] is False
+            assert dataset.metadata["verify"] is True
+            assert dataset.metadata["source_run_id"] == "test-run"
+            assert dataset.metadata["run_id"] != "test-run"
 
         asyncio.run(run())
 
-    def test_averify_full_round_trip(self):
+    def test_verify_full_round_trip(self):
         """Generate → save → load → verify → save → load: end-to-end."""
 
         async def run():
@@ -291,7 +291,7 @@ class TestAverify:
                 )
                 client = _FakeClient(verifier, generator)
 
-                c3 = await client.run_averify(loaded_c1, threshold=0.6)
+                c3 = await client.run_verify(loaded_c1, threshold=0.6)
 
                 c3_path = os.path.join(tmpdir, "c3")
                 c3.save(c3_path)
@@ -303,8 +303,8 @@ class TestAverify:
 
         asyncio.run(run())
 
-    def test_averify_empty_dataset(self):
-        """averify() handles empty datasets gracefully."""
+    def test_verify_empty_dataset(self):
+        """verify() handles empty datasets gracefully."""
 
         async def run():
             ds = Dataset(
@@ -317,13 +317,13 @@ class TestAverify:
             generator = AsyncMock()
             client = _FakeClient(verifier, generator)
 
-            result = await client.run_averify(ds, threshold=0.6)
-            assert len(result.samples) == 0
+            dataset = await client.run_verify(ds, threshold=0.6)
+            assert len(dataset.samples) == 0
 
         asyncio.run(run())
 
-    def test_averify_after_csv_round_trip(self):
-        """save → load → averify works correctly despite CSV string coercion."""
+    def test_verify_after_csv_round_trip(self):
+        """save → load → verify works correctly despite CSV string coercion."""
 
         async def run():
             config = _make_config("A")
@@ -353,11 +353,11 @@ class TestAverify:
                 generator = AsyncMock()
                 client = _FakeClient(verifier, generator)
 
-                result = await client.run_averify(loaded, threshold=0.6)
+                dataset = await client.run_verify(loaded, threshold=0.6)
 
-                assert len(result.samples) == 2
-                assert result.metadata["verify"] is True
+                assert len(dataset.samples) == 2
+                assert dataset.metadata["verify"] is True
                 # Prompt lookup should still work after string coercion
-                assert result.metadata["alignment_verification"]["termination_reason"] == "count_reached"
+                assert dataset.metadata["alignment_verification"]["termination_reason"] == "count_reached"
 
         asyncio.run(run())

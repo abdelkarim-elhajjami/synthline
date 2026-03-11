@@ -152,7 +152,7 @@ def _cmd_optimize(args: argparse.Namespace) -> None:
         print(_progress_bar(progress, message), end="", flush=True)
 
     optimized = asyncio.run(
-        sl.aoptimize(
+        sl.optimize(
             prompts,
             alpha=cfg.get("alpha", 0.5),
             iterations=cfg.get("iterations", 1),
@@ -193,7 +193,7 @@ def _cmd_generate(args: argparse.Namespace) -> None:
 
         sl = _create_client(cfg)
         output = asyncio.run(
-            sl.averify(
+            sl.verify(
                 dataset,
                 threshold=cfg.get("verify_threshold", 0.5),
                 on_progress=_on_progress,
@@ -229,7 +229,7 @@ def _cmd_generate(args: argparse.Namespace) -> None:
     sl = _create_client(cfg)
 
     output = asyncio.run(
-        sl.agenerate(
+        sl.generate(
             prompts,
             samples=cfg["samples"],
             verify=cfg.get("verify", False),

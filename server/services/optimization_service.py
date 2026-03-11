@@ -107,7 +107,7 @@ async def run_optimization(
                 failure_message="Failed to send prompt update",
             )
 
-        optimized = await sl.aoptimize(
+        optimized = await sl.optimize(
             prompts,
             alpha=float(features.get("pace_alpha", 0.5)),
             iterations=int(features.get("pace_iterations", 1)),
