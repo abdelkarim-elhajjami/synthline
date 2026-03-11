@@ -4,7 +4,7 @@ Shared NLI-based text-attribute alignment scorer for Synthline.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from synthline.core.constants import extract_fm_constraints
 from synthline.utils.logger import Logger

@@ -151,5 +151,3 @@ class Promptline:
             prompt = self.build(config, samples_per_prompt=samples_per_prompt)
             atomic_prompts.append({"config": config, "prompt": prompt})
         return atomic_prompts
-
-

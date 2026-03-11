@@ -15,7 +15,6 @@ class Logger:
 
     def __init__(self, debug_mode: bool = False):
         self.debug_mode = debug_mode
-        self.conversation_sample_rate = self.CONVERSATION_SAMPLE_RATE
 
         self._logger = logging.getLogger("Synthline")
         self._logger.setLevel(logging.DEBUG if self.debug_mode else logging.INFO)
@@ -84,7 +83,7 @@ class Logger:
         if not self.debug_mode:
             return
 
-        if random.random() > self.conversation_sample_rate:
+        if random.random() > self.CONVERSATION_SAMPLE_RATE:
             return
 
         self._log("DEBUG", "LLM", {

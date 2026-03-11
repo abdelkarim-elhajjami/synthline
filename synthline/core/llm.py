@@ -36,10 +36,7 @@ class LLMClient:
         self._hf_client = None
 
         self._logger = logger
-        self._request_timeout = self.REQUEST_TIMEOUT
-        self._max_retries = self.MAX_RETRIES
-        self._max_concurrency = self.MAX_CONCURRENCY
-        self._semaphore = asyncio.Semaphore(self._max_concurrency)
+        self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENCY)
 
     @staticmethod
     def _provider_for_model(model: str) -> str:
@@ -117,7 +114,7 @@ class LLMClient:
         return AsyncClient(
             api_key=api_key,
             base_url=base_url,
-            timeout=self._request_timeout,
+            timeout=self.REQUEST_TIMEOUT,
             max_retries=0,  # We handle retries ourselves for proper rate limit adaptation
         )
 
@@ -170,7 +167,7 @@ class LLMClient:
         model_name = self._model_name_for_request(model)
         last_error: Optional[Exception] = None
 
-        for attempt in range(self._max_retries + 1):
+        for attempt in range(self.MAX_RETRIES + 1):
             try:
                 kwargs: Dict[str, Any] = {
                     "model": model_name,
@@ -206,7 +203,7 @@ class LLMClient:
                 retry_after = self._parse_retry_after(e)
                 wait = retry_after if retry_after else min(2 ** attempt, 60)
                 self._logger.log_error(
-                    f"Rate limit, retry {attempt + 1}/{self._max_retries + 1} in {wait:.0f}s",
+                    f"Rate limit, retry {attempt + 1}/{self.MAX_RETRIES + 1} in {wait:.0f}s",
                     "llm", {"model": model},
                 )
                 await asyncio.sleep(wait)
@@ -216,7 +213,7 @@ class LLMClient:
                     last_error = e
                     wait = min(2 ** attempt, 60)
                     self._logger.log_error(
-                        f"Server {e.status_code}, retry {attempt + 1}/{self._max_retries + 1} in {wait:.0f}s",
+                        f"Server {e.status_code}, retry {attempt + 1}/{self.MAX_RETRIES + 1} in {wait:.0f}s",
                         "llm", {"model": model},
                     )
                     await asyncio.sleep(wait)
@@ -228,7 +225,7 @@ class LLMClient:
                 last_error = e
                 wait = min(2 ** attempt, 60)
                 self._logger.log_error(
-                    f"{type(e).__name__}, retry {attempt + 1}/{self._max_retries + 1} in {wait:.0f}s",
+                    f"{type(e).__name__}, retry {attempt + 1}/{self.MAX_RETRIES + 1} in {wait:.0f}s",
                     "llm", {"model": model},
                 )
                 await asyncio.sleep(wait)
@@ -243,7 +240,7 @@ class LLMClient:
 
         # All retries exhausted
         self._logger.log_error(
-            f"All {self._max_retries + 1} attempts failed",
+            f"All {self.MAX_RETRIES + 1} attempts failed",
             "llm",
             {"prompt": prompt[:100], "model": model},
         )

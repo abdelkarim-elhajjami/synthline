@@ -12,8 +12,7 @@ from synthline.utils.logger import Logger
 from synthline.utils.parsing import parse_completion_with_meta
 from synthline.utils.progress import report_progress
 
-
-MAX_RETRIES = 3
+MAX_PARSE_RETRIES = 3
 
 
 class Generator:
@@ -70,7 +69,7 @@ class Generator:
 
             config_samples = []
             retries = 0
-            max_retries = MAX_RETRIES
+            max_retries = MAX_PARSE_RETRIES
             max_calls = (samples_for_config // max(1, samples_per_prompt)) + max_retries + 1
             calls = 0
             while len(config_samples) < samples_for_config and calls < max_calls:
@@ -159,7 +158,7 @@ class Generator:
 
             config_samples: List[Dict[str, Any]] = []
             retries = 0
-            max_retries = MAX_RETRIES
+            max_retries = MAX_PARSE_RETRIES
             max_calls = math.ceil(target_count / max(1, samples_per_prompt)) + max_retries + 1
             calls = 0
 

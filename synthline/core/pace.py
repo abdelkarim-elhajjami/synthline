@@ -51,7 +51,7 @@ class PACE:
         api_keys: Optional[Dict[str, str]] = None
     ) -> List[OptimizedPrompt]:
         """Optimize multiple prompts in parallel (one for each atomic configuration)."""
-        semaphore = asyncio.Semaphore(self._llm._max_concurrency)
+        semaphore = asyncio.Semaphore(LLMClient.MAX_CONCURRENCY)
         tasks: List[asyncio.Task] = []
         total_configs = len(atomic_configs)
 

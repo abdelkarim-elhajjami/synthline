@@ -577,4 +577,3 @@ def _extract_constraint_features(config: Dict[str, Any]) -> Dict[str, Any]:
             result[label] = value
     return result
 
-
