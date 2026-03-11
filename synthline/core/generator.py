@@ -126,6 +126,84 @@ class Generator:
             parsing_degraded=parsing_degraded,
         )
 
+    async def generate_for_configs(
+        self,
+        config_requests: List[Tuple[Dict[str, Any], int]],
+        samples_per_prompt: int,
+        api_keys: Optional[Dict[str, str]] = None,
+    ) -> GenerationResult:
+        """Generate samples for explicit (config, count) pairs.
+
+        Unlike :meth:`generate`, this method does **not** distribute
+        samples via ``_distribute_samples``.  Each ``(config, count)``
+        pair is fulfilled independently using the exact config provided.
+
+        Used by the verification loop for config-aware regeneration so
+        that rejected samples are replaced from the *same* configuration.
+        """
+        all_samples: List[Dict[str, Any]] = []
+        fewer_samples_received = False
+        parsing_degraded = False
+
+        for config, target_count in config_requests:
+            # Ensure the exact same prompt is reused (bypass promptline.build).
+            regen_config = {k: v for k, v in config.items() if k != "prompt"}
+            if "optimized_prompt" not in regen_config and "prompt" in config:
+                regen_config["optimized_prompt"] = config["prompt"]
+
+            config_samples: List[Dict[str, Any]] = []
+            retries = 0
+            max_retries = 3
+            max_calls = math.ceil(target_count / max(1, samples_per_prompt)) + max_retries + 1
+            calls = 0
+
+            while len(config_samples) < target_count and calls < max_calls:
+                calls += 1
+                # Always request samples_per_prompt to keep generation
+                # conditions identical to the original run (same prompt
+                # text, same JSON schema).  Excess samples are trimmed.
+                request_count = samples_per_prompt
+
+                try:
+                    new_samples, received_count, call_degraded, parse_method = (
+                        await self._generate_samples(
+                            atomic_config=regen_config,
+                            request_count=request_count,
+                            api_keys=api_keys,
+                        )
+                    )
+                except Exception:
+                    fewer_samples_received = True
+                    break
+
+                if call_degraded:
+                    parsing_degraded = True
+
+                if call_degraded and received_count < request_count:
+                    retries += 1
+                    if retries >= max_retries:
+                        fewer_samples_received = True
+                        self._logger.log_warning(
+                            f"[regen] Parse failed {retries}x, skipping config "
+                            f"({len(config_samples)}/{target_count} collected).",
+                            "generator",
+                        )
+                        break
+                    continue
+
+                if new_samples:
+                    config_samples.extend(new_samples)
+                else:
+                    break
+
+            all_samples.extend(config_samples[:target_count])
+
+        return GenerationResult(
+            samples=all_samples,
+            fewer_samples_received=fewer_samples_received,
+            parsing_degraded=parsing_degraded,
+        )
+
     async def _generate_samples(
         self,
         atomic_config: Dict[str, Any],

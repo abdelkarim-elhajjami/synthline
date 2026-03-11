@@ -181,6 +181,7 @@ class Dataset:
 
     samples: List[Dict[str, Any]]
     metadata: Dict[str, Any] = field(default_factory=dict)
+    raw_samples: Optional[List[Dict[str, Any]]] = None
 
     # -- sequence protocol --------------------------------------------------
 
@@ -222,7 +223,7 @@ class Dataset:
         return pd.DataFrame(self.samples)
 
     def save(self, path: str) -> None:
-        """Write ``data.csv`` and ``metadata.json`` to *path*."""
+        """Write ``data.csv``, ``metadata.json``, and optionally ``raw_samples.json`` to *path*."""
         out = Path(path)
         out.mkdir(parents=True, exist_ok=True)
 
@@ -234,3 +235,31 @@ class Dataset:
             (out / "metadata.json").write_text(
                 json.dumps(self.metadata, indent=2, ensure_ascii=False), encoding="utf-8"
             )
+
+        if self.raw_samples is not None:
+            (out / "raw_samples.json").write_text(
+                json.dumps(self.raw_samples, ensure_ascii=False), encoding="utf-8"
+            )
+
+    @classmethod
+    def load(cls, path: str) -> "Dataset":
+        """Load a Dataset from a directory written by :meth:`save`."""
+        src = Path(path)
+
+        metadata: Dict[str, Any] = {}
+        meta_path = src / "metadata.json"
+        if meta_path.exists():
+            metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+
+        samples: List[Dict[str, Any]] = []
+        csv_path = src / "data.csv"
+        if csv_path.exists():
+            df = pd.read_csv(csv_path, encoding="utf-8", dtype=str, keep_default_na=False)
+            samples = df.to_dict("records")
+
+        raw_samples: Optional[List[Dict[str, Any]]] = None
+        raw_path = src / "raw_samples.json"
+        if raw_path.exists():
+            raw_samples = json.loads(raw_path.read_text(encoding="utf-8"))
+
+        return cls(samples=samples, metadata=metadata, raw_samples=raw_samples)

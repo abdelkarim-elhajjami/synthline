@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -343,6 +344,7 @@ class Synthline:
             "top_p": self._top_p,
             "samples_requested": samples,
             "samples_produced": len(formatted),
+            "samples_per_prompt": int(features.get("samples_per_prompt", 1)),
             "verify": verify,
             "verify_threshold": verify_threshold if verify else None,
             "optimized": prompts.optimized,
@@ -357,7 +359,94 @@ class Synthline:
         if on_progress:
             await on_progress(100.0, "Complete")
 
-        return Dataset(samples=formatted, metadata=metadata)
+        return Dataset(samples=formatted, metadata=metadata, raw_samples=raw_samples)
+
+    # ======================================================================
+    # verify (shared-base workflow)
+    # ======================================================================
+
+    def verify(
+        self,
+        dataset: Dataset,
+        *,
+        threshold: float = 0.5,
+        on_progress: ProgressCallback = None,
+        on_verification: VerificationCallback = None,
+    ) -> Dataset:
+        """Verify a pre-generated Dataset, regenerating rejected samples.
+
+        Used for the shared-base experimental design where C3 verifies
+        C1's output and C4 verifies C2's output.
+        """
+        return asyncio.run(
+            self.averify(
+                dataset,
+                threshold=threshold,
+                on_progress=on_progress,
+                on_verification=on_verification,
+            )
+        )
+
+    async def averify(
+        self,
+        dataset: Dataset,
+        *,
+        threshold: float = 0.5,
+        on_progress: ProgressCallback = None,
+        on_verification: VerificationCallback = None,
+    ) -> Dataset:
+        """Async version of :meth:`verify`."""
+        if dataset.raw_samples is None:
+            raise ValueError(
+                "Dataset has no raw_samples. "
+                "Re-generate with current SDK version to enable verification."
+            )
+
+        started = time.perf_counter()
+        run_id = str(uuid4())
+        raw_samples = dataset.raw_samples
+        samples_needed = len(raw_samples)
+        spp = dataset.metadata.get("samples_per_prompt", 1)
+        features: Dict[str, Any] = {"samples_per_prompt": spp}
+
+        if on_progress:
+            await on_progress(0.0, "Verifying alignment")
+
+        accepted, alignment_verification, verification_warnings = (
+            await self._run_verification_loop(
+                raw_samples=raw_samples,
+                features=features,
+                threshold=threshold,
+                samples_needed=samples_needed,
+                on_verification=on_verification,
+            )
+        )
+
+        formatted = [
+            Dataset.format_sample(s["text"], s["config"])
+            for s in accepted
+        ]
+
+        warnings: List[str] = list(verification_warnings)
+
+        metadata: Dict[str, Any] = {
+            **dataset.metadata,
+            "run_id": run_id,
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "verify": True,
+            "verify_threshold": threshold,
+            "samples_produced": len(formatted),
+            "alignment_verification": alignment_verification,
+            "source_run_id": dataset.metadata.get("run_id"),
+            "duration_seconds": round(time.perf_counter() - started, 2),
+        }
+        if warnings:
+            metadata["warnings"] = warnings
+
+        if on_progress:
+            await on_progress(100.0, "Complete")
+
+        return Dataset(samples=formatted, metadata=metadata, raw_samples=accepted)
 
     # -- verification loop --------------------------------------------------
 
@@ -414,12 +503,15 @@ class Synthline:
                     len(all_accepted), samples_needed, progress,
                 )
 
+            config_groups = _group_rejected_by_config(rejected)
+
             attempt_trace.append({
                 "attempt": attempt + 1,
                 "pending_in": len(pending),
                 "accepted": len(accepted),
                 "rejected": len(rejected),
                 "accepted_added": added,
+                "rejected_configs": len(config_groups),
                 "duration_ms": int((time.perf_counter() - started) * 1000),
             })
 
@@ -432,13 +524,27 @@ class Synthline:
             if attempt == AlignVerifier.MAX_RETRIES:
                 break
 
-            # Regenerate rejected portion
+            # Config-aware regeneration: replace rejected samples from
+            # their *originating* config (matches paper §3.4, line 280).
             deficit = samples_needed - len(all_accepted)
-            regen_features = dict(features)
-            regen_features["total_samples"] = deficit
-            regen_result = await self._runtime.generator.generate(
-                features=regen_features,
-                progress_callback=None,
+            spp = int(features.get("samples_per_prompt", 1))
+
+            config_requests: List[Tuple[Dict[str, Any], int]] = []
+            remaining = deficit
+            for _key, (config, rejected_count) in config_groups.items():
+                if remaining <= 0:
+                    break
+                count = min(rejected_count, remaining)
+                config_requests.append((config, count))
+                remaining -= count
+
+            if not config_requests:
+                termination_reason = "no_configs_to_regenerate"
+                break
+
+            regen_result = await self._runtime.generator.generate_for_configs(
+                config_requests=config_requests,
+                samples_per_prompt=spp,
                 api_keys=self._api_keys,
             )
             pending = regen_result.samples
@@ -471,6 +577,43 @@ class Synthline:
             total_generated_across_retries=total_generated,
         )
         return all_accepted, alignment_verification, warnings
+
+
+# ======================================================================
+# Verification helpers
+# ======================================================================
+
+
+_CONFIG_KEY_EXCLUDE = frozenset({"prompt", "optimized_prompt", "pace_score"})
+
+
+def _config_key(config: Dict[str, Any]) -> str:
+    """Stable, hashable identity for a sample's generation config.
+
+    Excludes derived/meta keys (``prompt``, ``optimized_prompt``,
+    ``pace_score``) that do not define the atomic configuration.
+    """
+    filtered = {k: v for k, v in config.items() if k not in _CONFIG_KEY_EXCLUDE}
+    return json.dumps(filtered, sort_keys=True, ensure_ascii=True)
+
+
+def _group_rejected_by_config(
+    rejected: List[Tuple[Dict[str, Any], float]],
+) -> Dict[str, Tuple[Dict[str, Any], int]]:
+    """Group rejected ``(sample, score)`` tuples by generation config.
+
+    Returns ``{config_key: (representative_config, rejection_count)}``.
+    """
+    groups: Dict[str, Tuple[Dict[str, Any], int]] = {}
+    for sample, _score in rejected:
+        config = sample.get("config", {})
+        key = _config_key(config)
+        if key in groups:
+            rep, count = groups[key]
+            groups[key] = (rep, count + 1)
+        else:
+            groups[key] = (config, 1)
+    return groups
 
 
 # ======================================================================

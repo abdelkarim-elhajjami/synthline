@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 from synthline.core.generator import Generator
 
 @pytest.fixture
@@ -179,5 +179,189 @@ def test_generate_token_limit_handling(generator, mock_llm, mock_promptline, moc
 
         # Two calls: first returned 1, second filled the gap
         assert mock_llm.get_batch_completions.call_count == 2
+
+    asyncio.run(run())
+
+
+# ======================================================================
+# generate_for_configs tests
+# ======================================================================
+
+def _make_config(config_id: str, *, optimized: bool = False) -> dict:
+    """Helper to build a distinct config for testing."""
+    config = {
+        "llm": "test-model",
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "__fm_constraints__": [{"label": f"Feature_{config_id}", "value": config_id}],
+        "classification_label": "Test",
+        "classification_label_def": "A test label",
+        "prompt": f"Generate test data for config {config_id}",
+    }
+    if optimized:
+        config["optimized_prompt"] = f"Optimized prompt for config {config_id}"
+    return config
+
+
+def test_generate_for_configs_single_config(generator, mock_llm):
+    """Single config, 2 samples needed."""
+    import asyncio
+
+    async def run():
+        config = _make_config("A")
+        mock_llm.get_batch_completions.return_value = [
+            '{"samples": ["Sample 1", "Sample 2"]}'
+        ]
+
+        result = await generator.generate_for_configs(
+            config_requests=[(config, 2)],
+            samples_per_prompt=2,
+        )
+
+        assert len(result.samples) == 2
+        assert result.samples[0]["text"] == "Sample 1"
+        assert result.fewer_samples_received is False
+        mock_llm.get_batch_completions.assert_called_once()
+
+    asyncio.run(run())
+
+
+def test_generate_for_configs_multi_config(generator, mock_llm):
+    """Two configs with different counts, each gets its own LLM call."""
+    import asyncio
+
+    async def run():
+        config_a = _make_config("A")
+        config_b = _make_config("B")
+
+        mock_llm.get_batch_completions.side_effect = [
+            ['{"samples": ["A1"]}'],
+            ['{"samples": ["B1", "B2"]}'],
+        ]
+
+        result = await generator.generate_for_configs(
+            config_requests=[(config_a, 1), (config_b, 2)],
+            samples_per_prompt=2,
+        )
+
+        assert len(result.samples) == 3
+        assert result.samples[0]["text"] == "A1"
+        assert result.samples[1]["text"] == "B1"
+        assert mock_llm.get_batch_completions.call_count == 2
+
+    asyncio.run(run())
+
+
+def test_generate_for_configs_uses_optimized_prompt(generator, mock_llm):
+    """Config with optimized_prompt should use it instead of promptline.build."""
+    import asyncio
+
+    async def run():
+        config = _make_config("A", optimized=True)
+
+        mock_llm.get_batch_completions.return_value = [
+            '{"samples": ["Sample 1"]}'
+        ]
+
+        result = await generator.generate_for_configs(
+            config_requests=[(config, 1)],
+            samples_per_prompt=1,
+        )
+
+        assert len(result.samples) == 1
+        # The prompt in the sample config should be the optimized one
+        sample_config = result.samples[0]["config"]
+        assert sample_config["prompt"] == "Optimized prompt for config A"
+
+    asyncio.run(run())
+
+
+def test_generate_for_configs_sets_optimized_prompt_from_stored(
+    generator, mock_llm, mock_promptline
+):
+    """Non-PACE config: optimized_prompt is set from stored prompt to bypass
+    promptline.build and reuse the exact same prompt."""
+    import asyncio
+
+    async def run():
+        config = _make_config("A")  # No optimized_prompt
+        assert "optimized_prompt" not in config
+
+        mock_llm.get_batch_completions.return_value = [
+            '{"samples": ["Sample 1"]}'
+        ]
+
+        result = await generator.generate_for_configs(
+            config_requests=[(config, 1)],
+            samples_per_prompt=1,
+        )
+
+        assert len(result.samples) == 1
+        # promptline.build should NOT have been called
+        mock_promptline.build.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_generate_for_configs_handles_llm_failure(generator, mock_llm, mock_logger):
+    """One config fails, other succeeds — partial results returned."""
+    import asyncio
+
+    async def run():
+        config_a = _make_config("A")
+        config_b = _make_config("B")
+
+        mock_llm.get_batch_completions.side_effect = [
+            RuntimeError("Provider failed"),
+            ['{"samples": ["B1"]}'],
+        ]
+
+        result = await generator.generate_for_configs(
+            config_requests=[(config_a, 1), (config_b, 1)],
+            samples_per_prompt=1,
+        )
+
+        assert len(result.samples) == 1
+        assert result.samples[0]["text"] == "B1"
+        assert result.fewer_samples_received is True
+
+    asyncio.run(run())
+
+
+def test_generate_for_configs_multi_call_per_config(generator, mock_llm):
+    """Config needs 4 samples with spp=2 → 2 LLM calls."""
+    import asyncio
+
+    async def run():
+        config = _make_config("A")
+
+        mock_llm.get_batch_completions.side_effect = [
+            ['{"samples": ["S1", "S2"]}'],
+            ['{"samples": ["S3", "S4"]}'],
+        ]
+
+        result = await generator.generate_for_configs(
+            config_requests=[(config, 4)],
+            samples_per_prompt=2,
+        )
+
+        assert len(result.samples) == 4
+        assert mock_llm.get_batch_completions.call_count == 2
+
+    asyncio.run(run())
+
+
+def test_generate_for_configs_empty_request(generator):
+    """Empty config_requests → empty result."""
+    import asyncio
+
+    async def run():
+        result = await generator.generate_for_configs(
+            config_requests=[],
+            samples_per_prompt=2,
+        )
+
+        assert result.samples == []
+        assert result.fewer_samples_received is False
 
     asyncio.run(run())

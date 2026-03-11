@@ -48,9 +48,10 @@ def main(argv: Optional[list] = None) -> None:
     gen.add_argument("--llm", help="LLM model identifier")
     gen.add_argument("--temperature", type=float, default=1.0)
     gen.add_argument("--top-p", type=float, default=1.0)
-    gen.add_argument("--samples", type=int, required=True, help="Number of samples")
+    gen.add_argument("--samples", type=int, help="Number of samples (required unless --verify-input)")
     gen.add_argument("--verify", action="store_true", help="Enable alignment verification")
     gen.add_argument("--verify-threshold", type=float, default=0.5)
+    gen.add_argument("--verify-input", help="Path to existing dataset to verify (skip generation)")
     gen.add_argument("--output", "-o", required=True, help="Output directory")
 
     # -- validate -----------------------------------------------------------
@@ -174,7 +175,42 @@ def _cmd_optimize(args: argparse.Namespace) -> None:
 def _cmd_generate(args: argparse.Namespace) -> None:
     cfg = _resolve_config(args)
 
-    # Load saved prompts or build new ones
+    last_pct = [-1]
+
+    async def _on_progress(progress: float, message: str) -> None:
+        pct = int(progress)
+        if pct == last_pct[0]:
+            return
+        last_pct[0] = pct
+        print(_progress_bar(progress, message), end="", flush=True)
+
+    # -- verify-input: shared-base workflow (skip generation) ---------------
+    if cfg.get("verify_input"):
+        from synthline.types import Dataset
+
+        dataset = Dataset.load(cfg["verify_input"])
+        print(f"Loaded {len(dataset)} samples from {cfg['verify_input']}")
+
+        sl = _create_client(cfg)
+        output = asyncio.run(
+            sl.averify(
+                dataset,
+                threshold=cfg.get("verify_threshold", 0.5),
+                on_progress=_on_progress,
+            )
+        )
+        print()
+
+        out = Path(cfg["output"])
+        output.save(str(out))
+        print(f"Verified {len(output)} samples → {out}/")
+        return
+
+    # -- standard generation path ------------------------------------------
+    if not cfg.get("samples"):
+        print("Error: --samples is required for generation", file=sys.stderr)
+        sys.exit(1)
+
     if cfg.get("prompts"):
         from synthline.types import PromptSet
 
@@ -191,15 +227,6 @@ def _cmd_generate(args: argparse.Namespace) -> None:
         print(f"Built {len(prompts)} atomic prompt(s)")
 
     sl = _create_client(cfg)
-
-    last_pct = [-1]
-
-    async def _on_progress(progress: float, message: str) -> None:
-        pct = int(progress)
-        if pct == last_pct[0]:
-            return
-        last_pct[0] = pct
-        print(_progress_bar(progress, message), end="", flush=True)
 
     output = asyncio.run(
         sl.agenerate(
@@ -234,7 +261,7 @@ def _resolve_config(args: argparse.Namespace) -> Dict[str, Any]:
     for key in (
         "fm", "glossary", "label", "label_def", "features",
         "samples_per_prompt", "llm", "temperature", "top_p",
-        "samples", "verify", "verify_threshold", "output",
+        "samples", "verify", "verify_threshold", "verify_input", "output",
         "alpha", "iterations", "actors", "candidates",
         "prompts", "debug",
     ):
