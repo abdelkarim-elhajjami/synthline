@@ -196,6 +196,7 @@ def _cmd_generate(args: argparse.Namespace) -> None:
             sl.verify(
                 dataset,
                 threshold=cfg.get("verify_threshold", 0.5),
+                samples_per_prompt=cfg.get("samples_per_prompt", 50),
                 on_progress=_on_progress,
             )
         )

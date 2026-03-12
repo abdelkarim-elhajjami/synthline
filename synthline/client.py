@@ -295,7 +295,7 @@ class Synthline:
             "top_p": self._top_p,
             "samples_requested": samples,
             "samples_produced": len(formatted),
-            "samples_per_prompt": int(features.get("samples_per_prompt", 1)),
+            "samples_per_prompt": features["samples_per_prompt"],
             "verify": verify,
             "verify_threshold": verify_threshold if verify else None,
             "optimized": prompts.optimized,
@@ -321,6 +321,7 @@ class Synthline:
         dataset: Dataset,
         *,
         threshold: float = 0.5,
+        samples_per_prompt: int,
         on_progress: ProgressCallback = None,
         on_verification: VerificationCallback = None,
     ) -> Dataset:
@@ -343,11 +344,6 @@ class Synthline:
             sample["config"].update(llm_settings)
 
         samples_needed = len(raw_samples)
-        samples_per_prompt = dataset.metadata.get("samples_per_prompt", None)
-        if samples_per_prompt is None:
-            n_prompts = len(dataset.metadata.get("prompts", []))
-            n_samples = len(dataset.samples)
-            samples_per_prompt = max(1, n_samples // n_prompts) if n_prompts > 0 else 1
         features: Dict[str, Any] = {"samples_per_prompt": samples_per_prompt}
 
         if on_progress:
@@ -380,6 +376,7 @@ class Synthline:
             "verify": True,
             "verify_threshold": threshold,
             "samples_produced": len(formatted),
+            "samples_per_prompt": samples_per_prompt,
             "alignment_verification": alignment_verification,
             "source_run_id": dataset.metadata.get("run_id"),
             "duration_seconds": round(time.perf_counter() - started, 2),

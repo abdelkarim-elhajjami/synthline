@@ -73,8 +73,8 @@ class _FakeClient:
         self._top_p = 1.0
         self._api_keys = api_keys or {}
 
-    async def run_verify(self, dataset, threshold=0.5):
-        return await Synthline.verify(self, dataset, threshold=threshold)
+    async def run_verify(self, dataset, threshold=0.5, samples_per_prompt=20):
+        return await Synthline.verify(self, dataset, threshold=threshold, samples_per_prompt=samples_per_prompt)
 
 
 # ======================================================================
