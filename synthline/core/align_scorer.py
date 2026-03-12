@@ -15,6 +15,7 @@ class AlignScorer:
 
     DEFAULT_MODEL_NAME = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
     ENTAILMENT_CLASS_INDEX = 0
+    BATCH_SIZE = 64
 
     def __init__(self, logger: Logger, model_name: str) -> None:
         self._logger = logger
@@ -25,6 +26,7 @@ class AlignScorer:
         self._model = None
         self._tokenizer = None
         self._entailment_index = None
+        self._device = None
         self._model_load_attempted = False
         self._hypothesis_cache: Dict[str, str] = {}
 
@@ -43,20 +45,22 @@ class AlignScorer:
 
         import torch
 
-        encoded = tokenizer(
-            pairs,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=512,
-        )
+        all_probs: List[float] = []
+        for i in range(0, len(pairs), self.BATCH_SIZE):
+            batch_pairs = pairs[i : i + self.BATCH_SIZE]
+            encoded = tokenizer(
+                batch_pairs,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=512,
+            )
+            encoded = {k: v.to(self._device) for k, v in encoded.items()}
+            with torch.no_grad():
+                probs = torch.softmax(model(**encoded).logits, dim=1)[:, entailment_index]
+                all_probs.extend(probs.cpu().tolist())
 
-        with torch.no_grad():
-            outputs = model(**encoded)
-            probabilities = torch.softmax(outputs.logits, dim=1)
-            entailment_probabilities = probabilities[:, entailment_index].cpu().numpy()
-
-        return [float(v) for v in entailment_probabilities]
+        return all_probs
 
     def score_batch(self, samples: List[str], attributes: Dict[str, Any]) -> float:
         """
@@ -115,6 +119,17 @@ class AlignScorer:
             statements.append(f"{label} is {value_text}")
         return statements
 
+    @staticmethod
+    def _resolve_device() -> "torch.device":
+        """Pick the best available accelerator: CUDA → MPS → CPU."""
+        import torch
+
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+
     def _get_runtime_components(self) -> Tuple[Any, Any, int]:
         if self._model_load_attempted:
             if self._model is None or self._tokenizer is None or self._entailment_index is None:
@@ -128,11 +143,13 @@ class AlignScorer:
             tokenizer = AutoTokenizer.from_pretrained(self._model_name)
             model = AutoModelForSequenceClassification.from_pretrained(self._model_name)
 
-            entailment_index = self.ENTAILMENT_CLASS_INDEX
+            device = self._resolve_device()
+            model = model.to(device).eval()
 
             self._model = model
             self._tokenizer = tokenizer
-            self._entailment_index = entailment_index
+            self._entailment_index = self.ENTAILMENT_CLASS_INDEX
+            self._device = device
             return self._model, self._tokenizer, self._entailment_index
         except Exception as exc:
             self._logger.log_error(
