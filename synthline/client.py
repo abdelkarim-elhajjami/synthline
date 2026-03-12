@@ -343,7 +343,11 @@ class Synthline:
             sample["config"].update(llm_settings)
 
         samples_needed = len(raw_samples)
-        samples_per_prompt = dataset.metadata.get("samples_per_prompt", 1)
+        samples_per_prompt = dataset.metadata.get("samples_per_prompt", None)
+        if samples_per_prompt is None:
+            n_prompts = len(dataset.metadata.get("prompts", []))
+            n_samples = len(dataset.samples)
+            samples_per_prompt = max(1, n_samples // n_prompts) if n_prompts > 0 else 1
         features: Dict[str, Any] = {"samples_per_prompt": samples_per_prompt}
 
         if on_progress:

@@ -5,6 +5,7 @@ and make the verification logic independently testable.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -137,7 +138,7 @@ async def run_verification_loop(
                 progress=progress,
             ))
 
-        accepted, rejected = verifier.verify(pending, threshold)
+        accepted, rejected = await asyncio.to_thread(verifier.verify, pending, threshold)
         rejected_scores.extend(score for _, score in rejected)
 
         slots_remaining = samples_needed - len(all_accepted)
