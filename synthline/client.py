@@ -43,6 +43,10 @@ class Synthline:
         Sampling temperature.
     top_p : float
         Nucleus sampling probability.
+    reasoning : dict | None
+        OpenRouter reasoning parameters for thinking models
+        (e.g. ``{"effort": "high"}`` or ``{"max_tokens": 4096}``).
+        Disabled by default.
     api_keys : dict | None
         Provider API keys (``{"openrouter": "sk-..."}``).  Falls back to
         environment variables when omitted.
@@ -58,6 +62,7 @@ class Synthline:
         glossary: Optional[str] = None,
         temperature: float = 1.0,
         top_p: float = 1.0,
+        reasoning: Optional[Dict[str, Any]] = None,
         api_keys: Optional[Dict[str, str]] = None,
         debug: bool = False,
     ) -> None:
@@ -70,6 +75,7 @@ class Synthline:
         self._llm = llm
         self._temperature = temperature
         self._top_p = top_p
+        self._reasoning = reasoning
         self._api_keys = api_keys
 
     # -- convenience properties ---------------------------------------------
@@ -88,6 +94,7 @@ class Synthline:
         llm: str,
         temperature: float = 1.0,
         top_p: float = 1.0,
+        reasoning: Optional[Dict[str, Any]] = None,
         api_keys: Optional[Dict[str, str]] = None,
     ) -> "Synthline":
         """Build a Synthline instance that reuses an existing Runtime.
@@ -100,6 +107,7 @@ class Synthline:
         instance._llm = llm
         instance._temperature = temperature
         instance._top_p = top_p
+        instance._reasoning = reasoning
         instance._api_keys = api_keys
         return instance
 
@@ -122,7 +130,7 @@ class Synthline:
             raw_features = dict(features)
         else:
             fm_configuration = _translate_features(self._runtime.fm, features, or_group_mode)
-            raw_features = {
+            raw_features: Dict[str, Any] = {
                 "fm_configuration": fm_configuration,
                 "classification_label": label,
                 "classification_label_def": label_definition,
@@ -131,6 +139,8 @@ class Synthline:
                 "temperature": self._temperature,
                 "top_p": self._top_p,
             }
+            if self._reasoning:
+                raw_features["reasoning"] = self._reasoning
 
         atomic_prompts = self._runtime.promptline.get_atomic_prompts(raw_features)
 
@@ -181,6 +191,8 @@ class Synthline:
             "pace_candidates": candidates,
             "prompt_approach": "PACE",
         }
+        if self._reasoning:
+            features["reasoning"] = self._reasoning
 
         self._runtime.pace.set_align_scorer(
             self._runtime.align_scorer if alpha > 0.0 else None
@@ -238,6 +250,7 @@ class Synthline:
             llm=self._llm,
             temperature=self._temperature,
             top_p=self._top_p,
+            reasoning=self._reasoning,
             api_keys=self._api_keys,
         )
 
@@ -304,6 +317,8 @@ class Synthline:
             "alignment_verification": alignment_verification,
             "prompts": _build_prompts_summary(raw_samples, features),
         }
+        if self._reasoning:
+            metadata["reasoning"] = self._reasoning
         if warnings:
             metadata["warnings"] = list(warnings)
 
@@ -339,7 +354,9 @@ class Synthline:
         # so we restore them from the instance for config-aware regeneration.
         prompt_lookup = build_prompt_lookup(dataset.metadata)
         raw_samples = reconstruct_raw_samples(dataset.samples, prompt_lookup)
-        llm_settings = {"llm": self._llm, "temperature": self._temperature, "top_p": self._top_p}
+        llm_settings: Dict[str, Any] = {"llm": self._llm, "temperature": self._temperature, "top_p": self._top_p}
+        if self._reasoning:
+            llm_settings["reasoning"] = self._reasoning
         for sample in raw_samples:
             sample["config"].update(llm_settings)
 

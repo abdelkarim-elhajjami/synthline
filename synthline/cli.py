@@ -35,6 +35,8 @@ def main(argv: Optional[list] = None) -> None:
     opt.add_argument("--llm", required=True, help="LLM model identifier")
     opt.add_argument("--temperature", type=float, default=1.0)
     opt.add_argument("--top-p", type=float, default=1.0)
+    opt.add_argument("--reasoning-effort", choices=["low", "medium", "high"], help="Reasoning effort level for thinking models")
+    opt.add_argument("--reasoning-budget", type=int, help="Max reasoning tokens for thinking models")
     opt.add_argument("--alpha", type=float, default=0.5, help="PACE alpha")
     opt.add_argument("--iterations", type=int, default=1, help="PACE iterations")
     opt.add_argument("--actors", type=int, default=4, help="PACE actors")
@@ -48,6 +50,8 @@ def main(argv: Optional[list] = None) -> None:
     gen.add_argument("--llm", help="LLM model identifier")
     gen.add_argument("--temperature", type=float, default=1.0)
     gen.add_argument("--top-p", type=float, default=1.0)
+    gen.add_argument("--reasoning-effort", choices=["low", "medium", "high"], help="Reasoning effort level for thinking models")
+    gen.add_argument("--reasoning-budget", type=int, help="Max reasoning tokens for thinking models")
     gen.add_argument("--samples", type=int, help="Number of samples (required unless --verify-input)")
     gen.add_argument("--verify", action="store_true", help="Enable alignment verification")
     gen.add_argument("--verify-threshold", type=float, default=0.5)
@@ -270,6 +274,17 @@ def _resolve_config(args: argparse.Namespace) -> Dict[str, Any]:
         if val is not None:
             cfg[key] = val
 
+    # Build reasoning dict from CLI args (--reasoning-effort / --reasoning-budget)
+    reasoning_effort = getattr(args, "reasoning_effort", None)
+    reasoning_budget = getattr(args, "reasoning_budget", None)
+    if reasoning_effort is not None or reasoning_budget is not None:
+        existing_reasoning: Dict[str, Any] = cfg.get("reasoning", {}) or {}
+        if reasoning_effort is not None:
+            existing_reasoning["effort"] = reasoning_effort
+        if reasoning_budget is not None:
+            existing_reasoning["max_tokens"] = reasoning_budget
+        cfg["reasoning"] = existing_reasoning
+
     # Rename label_def → label_definition
     if "label_def" in cfg:
         cfg.setdefault("label_definition", cfg.pop("label_def"))
@@ -297,6 +312,7 @@ def _create_client(cfg: Dict[str, Any]) -> "Synthline":
         glossary=cfg.get("glossary"),
         temperature=float(cfg.get("temperature", 1.0)),
         top_p=float(cfg.get("top_p", 1.0)),
+        reasoning=cfg.get("reasoning"),
         debug=cfg.get("debug", False),
     )
 

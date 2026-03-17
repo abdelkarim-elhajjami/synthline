@@ -22,16 +22,19 @@ class LLMClient:
                  logger: Logger,
                  openai_key: Optional[str] = None,
                  openrouter_key: Optional[str] = None,
+                 ilaas_key: Optional[str] = None,
                  ollama_base_url: Optional[str] = None,
                  hf_token: Optional[str] = None):
         """Initialize the LLM client with API keys."""
         self._default_openai_key = openai_key
         self._default_openrouter_key = openrouter_key
+        self._default_ilaas_key = ilaas_key
         self._ollama_base_url = ollama_base_url
         self._hf_token = hf_token
 
         self._default_openai_client = None
         self._default_openrouter_client = None
+        self._default_ilaas_client = None
         self._ollama_client = None
         self._hf_client = None
 
@@ -46,6 +49,8 @@ class LLMClient:
             return "huggingface"
         if model.startswith("openrouter/"):
             return "openrouter"
+        if model.startswith("ilaas/"):
+            return "ilaas"
         if model.startswith("openai/"):
             return "openai"
         return "openai"
@@ -55,7 +60,7 @@ class LLMClient:
         provider = LLMClient._provider_for_model(model)
         if provider == "ollama":
             return model.split("/")[-1]
-        if "/" in model and provider in {"huggingface", "openrouter", "openai"}:
+        if "/" in model and provider in {"huggingface", "openrouter", "ilaas", "openai"}:
             return model.split("/", 1)[1]
         return model
 
@@ -96,7 +101,24 @@ class LLMClient:
                 base_url="https://openrouter.ai/api/v1"
             )
 
-        # 4. OpenAI
+        # 4. ILaaS
+        elif provider == "ilaas":
+            key = keys.get('ilaas') or self._default_ilaas_key
+
+            if key == self._default_ilaas_key:
+                if not self._default_ilaas_client:
+                    self._default_ilaas_client = self._create_async_client(
+                        api_key=self._default_ilaas_key or "missing-key",
+                        base_url="https://llm.ilaas.fr/v1"
+                    )
+                return self._default_ilaas_client
+
+            return self._create_async_client(
+                api_key=key,
+                base_url="https://llm.ilaas.fr/v1"
+            )
+
+        # 5. OpenAI
         else:
             key = keys.get('openai') or self._default_openai_key
 
@@ -155,7 +177,8 @@ class LLMClient:
                              temperature: float,
                              top_p: float,
                              api_keys: Optional[Dict[str, str]] = None,
-                             response_format: Optional[Dict[str, Any]] = None) -> str:
+                             response_format: Optional[Dict[str, Any]] = None,
+                             reasoning: Optional[Dict[str, Any]] = None) -> str:
         """Generate a completion for a given prompt using the specified LLM.
 
         Retries automatically on rate limit (429) and transient server errors
@@ -176,6 +199,9 @@ class LLMClient:
                     "top_p": top_p,
                     "max_tokens": self.DEFAULT_MAX_TOKENS,
                 }
+                if reasoning:
+                    kwargs.setdefault("extra_body", {})["reasoning"] = reasoning
+
                 if response_format:
                     if provider == "ollama" and "json_schema" in response_format:
                         kwargs["format"] = response_format["json_schema"]["schema"]
@@ -257,6 +283,7 @@ class LLMClient:
             model = features['llm']
             temperature = float(features['temperature'])
             top_p = float(features['top_p'])
+            reasoning = features.get('reasoning')
 
             async def _completion_task(prompt_idx: int, prompt_text: str) -> Tuple[int, str]:
                 async with self._semaphore:
@@ -267,6 +294,7 @@ class LLMClient:
                         top_p=top_p,
                         api_keys=api_keys,
                         response_format=response_format,
+                        reasoning=reasoning,
                     )
                     return prompt_idx, completion_text
 

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     # API Keys
     OPENAI_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
+    ILAAS_API_KEY: Optional[str] = None
     # LLM Configuration
     OLLAMA_BASE_URL: Optional[str] = None
     HF_TOKEN: Optional[str] = None

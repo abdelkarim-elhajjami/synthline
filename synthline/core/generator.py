@@ -42,6 +42,8 @@ class Generator:
         samples_per_prompt = int(features['samples_per_prompt'])
 
         llm_settings = {k: features[k] for k in ['llm', 'temperature', 'top_p']}
+        if features.get('reasoning'):
+            llm_settings['reasoning'] = features['reasoning']
 
         if 'optimized_atomic_prompts' in features:
             atomic_configs = []

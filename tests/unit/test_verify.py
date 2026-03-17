@@ -71,6 +71,7 @@ class _FakeClient:
         self._llm = "test-model"
         self._temperature = 0.7
         self._top_p = 1.0
+        self._reasoning = None
         self._api_keys = api_keys or {}
 
     async def run_verify(self, dataset, threshold=0.5, samples_per_prompt=20):

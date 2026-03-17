@@ -268,11 +268,13 @@ Verify that:
 
 If the output falls short on any point, describe specifically how."""
 
-        critic_settings = {
+        critic_settings: Dict[str, Any] = {
             'llm': features['llm'],
             'temperature': features['temperature'],
             'top_p': features['top_p'],
         }
+        if features.get('reasoning'):
+            critic_settings['reasoning'] = features['reasoning']
 
         try:
             completions = await self._llm.get_batch_completions(
@@ -316,11 +318,13 @@ Rewrite the Current Instruction to address the Critiques, preserving from the Re
 
 Return only the rewritten instruction."""
 
-        update_settings = {
+        update_settings: Dict[str, Any] = {
             'llm': features['llm'],
             'temperature': features['temperature'],
             'top_p': features['top_p'],
         }
+        if features.get('reasoning'):
+            update_settings['reasoning'] = features['reasoning']
 
         try:
             completions = await self._llm.get_batch_completions(

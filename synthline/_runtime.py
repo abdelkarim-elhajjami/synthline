@@ -61,6 +61,7 @@ def create_runtime(
         logger=logger,
         openai_key=keys.get("openai") or os.environ.get("OPENAI_API_KEY"),
         openrouter_key=keys.get("openrouter") or os.environ.get("OPENROUTER_API_KEY"),
+        ilaas_key=keys.get("ilaas") or os.environ.get("ILAAS_API_KEY"),
         ollama_base_url=keys.get("ollama_base_url") or os.environ.get("OLLAMA_BASE_URL"),
         hf_token=keys.get("hf_token") or os.environ.get("HF_TOKEN"),
     )

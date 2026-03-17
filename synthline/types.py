@@ -163,6 +163,7 @@ class PromptSet:
         temperature: float,
         top_p: float,
         *,
+        reasoning: Optional[Dict[str, Any]] = None,
         api_keys: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Build the internal features dict that :class:`Generator` expects.
@@ -179,6 +180,8 @@ class PromptSet:
             "total_samples": total_samples,
             "samples_per_prompt": self.samples_per_prompt,
         }
+        if reasoning:
+            base["reasoning"] = reasoning
 
         if self.optimized:
             base["optimized_atomic_prompts"] = [

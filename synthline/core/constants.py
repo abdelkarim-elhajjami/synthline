@@ -20,6 +20,7 @@ LLM_FIELDS = frozenset({
     "llm",
     "temperature",
     "top_p",
+    "reasoning",
 })
 
 GENERATION_FIELDS = frozenset({

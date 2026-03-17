@@ -33,6 +33,7 @@ async def run_optimization(
             llm=str(features.get("llm", "")),
             temperature=float(features.get("temperature", 1.0)),
             top_p=float(features.get("top_p", 1.0)),
+            reasoning=features.get("reasoning"),
             api_keys=api_keys,
         )
 

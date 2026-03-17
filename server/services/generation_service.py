@@ -34,6 +34,7 @@ async def run_generation(
             llm=str(features.get("llm", "")),
             temperature=float(features.get("temperature", 1.0)),
             top_p=float(features.get("top_p", 1.0)),
+            reasoning=features.get("reasoning"),
             api_keys=api_keys,
         )
 
@@ -60,6 +61,7 @@ async def run_generation(
                     "llm": str(features.get("llm", "")),
                     "temperature": float(features.get("temperature", 1.0)),
                     "top_p": float(features.get("top_p", 1.0)),
+                    **({"reasoning": features["reasoning"]} if features.get("reasoning") else {}),
                 },
             )
         else:
