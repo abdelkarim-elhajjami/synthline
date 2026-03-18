@@ -35,3 +35,6 @@ sessions/
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Claude
+.claude/
