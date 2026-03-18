@@ -2,12 +2,27 @@
 Client for OpenAI, OpenRouter, and HuggingFace APIs.
 """
 import asyncio
+import copy
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from openai import AsyncClient, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError
 from huggingface_hub import AsyncInferenceClient
 from synthline.utils.logger import Logger
+
+# Anthropic model prefixes — these models don't support minItems/maxItems in JSON schemas
+_ANTHROPIC_PREFIXES = ("anthropic/",)
+
+
+def _sanitize_schema_for_anthropic(response_format: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip array constraints (minItems, maxItems) unsupported by Anthropic."""
+    rf = copy.deepcopy(response_format)
+    schema = rf.get("json_schema", {}).get("schema", {})
+    for prop in schema.get("properties", {}).values():
+        if prop.get("type") == "array":
+            prop.pop("minItems", None)
+            prop.pop("maxItems", None)
+    return rf
 
 
 class LLMClient:
@@ -206,7 +221,10 @@ class LLMClient:
                     if provider == "ollama" and "json_schema" in response_format:
                         kwargs["format"] = response_format["json_schema"]["schema"]
                     elif provider != "ollama":
-                        kwargs["response_format"] = response_format
+                        # Anthropic doesn't support minItems/maxItems in JSON schemas
+                        is_anthropic = any(model_name.startswith(p) for p in _ANTHROPIC_PREFIXES)
+                        rf = _sanitize_schema_for_anthropic(response_format) if is_anthropic else response_format
+                        kwargs["response_format"] = rf
 
                 if provider == "huggingface":
                     response = await client.chat_completion(**kwargs)
