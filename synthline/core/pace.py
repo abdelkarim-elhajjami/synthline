@@ -227,7 +227,7 @@ class PACE:
     ) -> str:
         """Run the actor to generate synthetic samples based on the current prompt."""
         try:
-            samples_per_prompt = max(1, int(features.get("samples_per_prompt", 1)))
+            samples_per_prompt = int(features["samples_per_prompt"])
             completions = await self._llm.get_batch_completions(
                 prompts=[prompt],
                 features=features,

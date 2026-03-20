@@ -104,6 +104,10 @@ class AlignScorer:
 
     def _extract_constraint_fragments(self, attributes: Dict[str, Any]) -> List[str]:
         statements: List[str] = []
+        # Include classification label as the first constraint if present
+        cl = attributes.get("classification_label", "")
+        if cl:
+            statements.append(f"Label is {cl}")
         for label, value in extract_fm_constraints(attributes):
             if isinstance(value, list):
                 values = [s for v in value if (s := str(v).strip())]
