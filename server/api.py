@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict
 
-from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,21 +14,6 @@ from dependencies import dependencies
 from routes import features, generation, optimization, models, glossary
 
 API_TITLE = "Synthline API"
-HTML_CACHE_CONTROL = "no-store"
-STATIC_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
-
-
-def _apply_frontend_cache_headers(path: str, response: Response) -> None:
-    """Avoid stale exported Next.js HTML pointing at deleted chunk filenames."""
-    if path == "/" or path.endswith(".html"):
-        response.headers["Cache-Control"] = HTML_CACHE_CONTROL
-        return
-
-    if path.startswith("/_next/static/"):
-        if response.status_code < 400:
-            response.headers.setdefault("Cache-Control", STATIC_ASSET_CACHE_CONTROL)
-        else:
-            response.headers["Cache-Control"] = HTML_CACHE_CONTROL
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -54,13 +39,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.middleware("http")
-async def frontend_cache_control_middleware(request: Request, call_next):
-    response = await call_next(request)
-    _apply_frontend_cache_headers(request.url.path, response)
-    return response
 
 # Global Exception Handler
 @app.exception_handler(Exception)
