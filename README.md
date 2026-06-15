@@ -18,7 +18,7 @@ Domain constraints are formalized, validated, and enforced — before any text i
 - **Generate constrained synthetic data** from a feature model that defines valid attribute combinations for your domain — no real data required.
 - **Optimize prompts** with PACE (Prompt Actor-Critic Editing) to maximize diversity and text-attribute alignment before generation.
 - **Verify alignment** with an NLI-based quality gate that checks each instance against its conditioning attributes, with automatic retry on mismatch.
-- **Use compatible LLMs** through OpenAI, OpenRouter, Ollama (local), or Hugging Face Inference API.
+- **Use compatible LLMs** through OpenAI, OpenRouter, or Ollama (local).
 - **Export results** as CSV, pandas DataFrames, or artifact directories.
 
 ---
@@ -132,7 +132,6 @@ synthline generate --config run.yaml --output out/
 | OpenAI      | `openai/...`      | `OPENAI_API_KEY`     |
 | OpenRouter  | `openrouter/...`  | `OPENROUTER_API_KEY` |
 | Ollama      | `ollama/...`      | `OLLAMA_BASE_URL` (local) |
-| HuggingFace | `huggingface/...` | `HF_TOKEN`           |
 
 Keys can also be passed directly via `api_keys={"openrouter": "sk-or-..."}`.
 For Ollama, set `OLLAMA_BASE_URL` to the server root, such as
@@ -158,9 +157,9 @@ can support structured outputs through one serving stack and not through another
 The Web UI lists only OpenRouter models that advertise strict structured outputs and every
 standard sampling parameter Synthline sends, and removes known reasoning-model families.
 Generation requests require OpenRouter to route only through providers that support the
-requested parameters. OpenAI, Hugging Face, Ollama, and other model catalogs do not expose an
-equally reliable per-model capability flag through the endpoints Synthline uses, so verify those
-models against the provider documentation before selecting them:
+requested parameters. OpenAI and Ollama catalogs do not expose an equally reliable per-model
+capability flag through the endpoints Synthline uses, so verify those models against the provider
+documentation before selecting them:
 
 - [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
 - [OpenAI structured outputs](https://platform.openai.com/docs/guides/structured-outputs)

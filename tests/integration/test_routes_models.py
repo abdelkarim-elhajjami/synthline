@@ -101,27 +101,11 @@ def test_fetch_models_openrouter_success(mock_client_cls):
         params={"supported_parameters": "structured_outputs"},
     )
 
-
-@patch("httpx.AsyncClient")
-def test_fetch_models_huggingface_excludes_reasoning_models(mock_client_cls):
-    mock_client = MagicMock()
-    mock_client_cls.return_value.__aenter__.return_value = mock_client
-
-    mock_response = MagicMock()
-    mock_response.json.return_value = [
-        {"id": "mistralai/Ministral-8B-Instruct"},
-        {"id": "Qwen/Qwen3-Thinking"},
-        {"id": "deepseek-ai/DeepSeek-R1"},
-    ]
-    mock_client.get = AsyncMock(return_value=mock_response)
-
+def test_fetch_models_huggingface_is_not_supported():
     response = client.post(
         "/api/models/fetch",
         json={"provider": "huggingface"},
     )
 
-    assert response.status_code == 200
-    assert response.json() == [{
-        "value": "huggingface/mistralai/Ministral-8B-Instruct",
-        "label": "mistralai/Ministral-8B-Instruct",
-    }]
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid provider"

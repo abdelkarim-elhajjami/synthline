@@ -30,8 +30,6 @@ async def fetch_models(request: ModelFetchRequest):
         return await fetch_openai_models(request.api_key)
     if request.provider == "openrouter":
         return await fetch_openrouter_models(request.api_key)
-    if request.provider == "huggingface":
-        return await fetch_huggingface_models()
     raise HTTPException(status_code=400, detail="Invalid provider")
 
 
@@ -92,32 +90,3 @@ async def fetch_openrouter_models(api_key: Optional[str] = None) -> List[Dict[st
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch OpenRouter models: {str(e)}")
-
-
-async def fetch_huggingface_models() -> List[Dict[str, str]]:
-    """Fetch text-generation models; the catalog lacks capability metadata."""
-    url = "https://huggingface.co/api/models"
-    params = {
-        "pipeline_tag": "text-generation",
-        "limit": 50,
-    }
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, params=params, timeout=30.0)
-            response.raise_for_status()
-            data = response.json()
-
-            models = []
-            for item in data:
-                model_id = item.get("id", item.get("modelId", ""))
-                if model_id and not is_reasoning_model(model_id):
-                    models.append({
-                        "value": f"huggingface/{model_id}",
-                        "label": model_id
-                    })
-
-            return models
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to fetch HuggingFace models: {str(e)}")

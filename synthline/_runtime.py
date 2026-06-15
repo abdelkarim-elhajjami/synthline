@@ -45,7 +45,7 @@ def create_runtime(
     API keys are resolved in order:
       1. Explicit *api_keys* dict (``{"openrouter": "sk-..."}``).
       2. Environment variables (``OPENROUTER_API_KEY``, ``OPENAI_API_KEY``,
-         ``OLLAMA_BASE_URL``, ``HF_TOKEN``).
+         ``OLLAMA_BASE_URL``).
     """
     logger = Logger(debug_mode=debug)
 
@@ -63,7 +63,6 @@ def create_runtime(
         openrouter_key=keys.get("openrouter") or os.environ.get("OPENROUTER_API_KEY"),
         ilaas_key=keys.get("ilaas") or os.environ.get("ILAAS_API_KEY"),
         ollama_base_url=keys.get("ollama_base_url") or os.environ.get("OLLAMA_BASE_URL"),
-        hf_token=keys.get("hf_token") or os.environ.get("HF_TOKEN"),
     )
 
     # --- Scorer & Verifier ---

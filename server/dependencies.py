@@ -149,7 +149,6 @@ class Dependencies:
                 openrouter_key=settings.OPENROUTER_API_KEY,
                 ilaas_key=settings.ILAAS_API_KEY,
                 ollama_base_url=settings.OLLAMA_BASE_URL,
-                hf_token=settings.HF_TOKEN
             )
         return self._llm_client
         

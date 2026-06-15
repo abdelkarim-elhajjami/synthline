@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from huggingface_hub import AsyncInferenceClient
 from openai.resources.chat.completions import AsyncCompletions
 
 from synthline.core.llm import LLMClient
@@ -23,7 +22,6 @@ def _completion(content: str):
     "model",
     [
         "ollama/test-model",
-        "huggingface/org/test-model",
         "openai/test-model",
         "openrouter/google/test-model",
         "ilaas/test-model",
@@ -95,7 +93,6 @@ def test_ollama_base_url_is_normalized(configured, expected):
         "openai/o3-mini",
         "openrouter/openai/gpt-5",
         "openrouter/deepseek/deepseek-r1",
-        "huggingface/Qwen/Qwen3-Thinking",
         "ollama/magistral",
     ],
 )
@@ -144,9 +141,6 @@ def test_reasoning_options_are_rejected_before_provider_call():
 
 def test_installed_dependency_apis_support_required_request_contract():
     openai_parameters = inspect.signature(AsyncCompletions.create).parameters
-    hf_parameters = inspect.signature(
-        AsyncInferenceClient().chat.completions.create
-    ).parameters
 
     assert {
         "response_format",
@@ -154,65 +148,6 @@ def test_installed_dependency_apis_support_required_request_contract():
     } <= set(
         openai_parameters
     )
-    assert {"response_format", "max_tokens"} <= set(hf_parameters)
-
-
-def test_huggingface_client_builds_enforced_structured_output_request():
-    async def run():
-        hf_client = AsyncInferenceClient(
-            base_url="https://example.test/v1",
-            api_key="test",
-        )
-        hf_client._inner_post = AsyncMock(
-            return_value={
-                "id": "test",
-                "object": "chat.completion",
-                "created": 0,
-                "model": "org/test-model",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": '{"samples":["A"]}',
-                        },
-                        "finish_reason": "stop",
-                        "logprobs": None,
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 1,
-                    "completion_tokens": 1,
-                    "total_tokens": 2,
-                },
-            }
-        )
-        llm = LLMClient(logger=MagicMock())
-        llm._hf_client = hf_client
-        response_format = samples_schema(1)
-
-        result = await llm.get_completion(
-            prompt="Generate one sample",
-            model="huggingface/org/test-model",
-            temperature=0.0,
-            top_p=1.0,
-            response_format=response_format,
-        )
-
-        request = hf_client._inner_post.await_args.args[0]
-        sent_format = request.json["response_format"]
-        assert result == '{"samples":["A"]}'
-        if sent_format["type"] == "json_schema":
-            assert sent_format == response_format
-        else:
-            # huggingface_hub 0.32.6 translates the OpenAI-compatible schema
-            # into its equivalent enforced JSON-object grammar.
-            assert sent_format == {
-                "type": "json_object",
-                "value": response_format["json_schema"]["schema"],
-            }
-
-    asyncio.run(run())
 
 
 def test_openrouter_requires_a_provider_that_supports_every_sent_parameter():

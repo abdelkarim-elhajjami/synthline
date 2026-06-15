@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     ILAAS_API_KEY: Optional[str] = None
     # LLM Configuration
     OLLAMA_BASE_URL: Optional[str] = None
-    HF_TOKEN: Optional[str] = None
     # CORS
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://web:3000"]
     # Logging

@@ -14,10 +14,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Run full suite with minimum provider SDKs
+      - name: Run full suite with minimum OpenAI SDK
         run: |
           pip install -r requirements.txt pytest pytest-asyncio \
-            "openai==1.60.0" "huggingface_hub==0.32.6"
+            "openai==1.60.0"
           PYTHONPATH=.:server pytest -q
 
   test:

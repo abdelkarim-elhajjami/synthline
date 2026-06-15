@@ -18,7 +18,6 @@ const DEFAULT_LOCAL_MODELS = [
 // Deployment : 'local' or 'hf' (defaults to 'hf')
 const DEPLOYMENT = process.env.NEXT_PUBLIC_DEPLOYMENT || 'hf';
 const IS_LOCAL = DEPLOYMENT === 'local';
-const IS_HF = DEPLOYMENT === 'hf';
 
 export function useModelFetcher(apiKeys: ApiKeys) {
     const [models, setModels] = useState<GroupedModels[]>([]);
@@ -36,26 +35,7 @@ export function useModelFetcher(apiKeys: ApiKeys) {
             });
         }
 
-        // 2. HuggingFace (only if HF deployment)
-        if (IS_HF) {
-            try {
-                const res = await fetch('/api/models/fetch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ provider: 'huggingface' })
-                });
-                if (res.ok) {
-                    const data: ModelOption[] = await res.json();
-                    if (data.length > 0) {
-                        newModels.push({ label: "Models via Hugging Face (Free) 🔍", items: data });
-                    }
-                }
-            } catch (e) {
-                console.error("Failed to fetch HuggingFace models", e);
-            }
-        }
-
-        // 3. OpenAI (always show group, but only fetch if key is present)
+        // 2. OpenAI (always show group, but only fetch if key is present)
         if (apiKeys.openai) {
             try {
                 const res = await fetch('/api/models/fetch', {
@@ -80,7 +60,7 @@ export function useModelFetcher(apiKeys: ApiKeys) {
             newModels.push({ label: "Models via OpenAI 🔍", items: [] });
         }
 
-        // 4. OpenRouter
+        // 3. OpenRouter
         try {
             const res = await fetch('/api/models/fetch', {
                 method: 'POST',

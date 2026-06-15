@@ -7,7 +7,6 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from openai import AsyncClient, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError
-from huggingface_hub import AsyncInferenceClient
 from synthline.core.model_compatibility import validate_model_compatibility
 from synthline.errors import (
     ProviderConfigurationError,
@@ -19,7 +18,6 @@ from synthline.utils.logger import Logger
 
 _PROVIDER_PREFIXES = {
     "ollama/": "ollama",
-    "huggingface/": "huggingface",
     "openrouter/": "openrouter",
     "ilaas/": "ilaas",
     "openai/": "openai",
@@ -45,7 +43,7 @@ def _response_format_for_model(
 
 
 class LLMClient:
-    """Client for OpenAI-compatible APIs and Hugging Face inference."""
+    """Client for OpenAI-compatible APIs."""
 
     REQUEST_TIMEOUT = 120
     MAX_RETRIES = 5
@@ -57,20 +55,17 @@ class LLMClient:
                  openai_key: Optional[str] = None,
                  openrouter_key: Optional[str] = None,
                  ilaas_key: Optional[str] = None,
-                 ollama_base_url: Optional[str] = None,
-                 hf_token: Optional[str] = None):
+                 ollama_base_url: Optional[str] = None):
         """Initialize the LLM client with API keys."""
         self._default_openai_key = openai_key
         self._default_openrouter_key = openrouter_key
         self._default_ilaas_key = ilaas_key
         self._ollama_base_url = ollama_base_url
-        self._hf_token = hf_token
 
         self._default_openai_client = None
         self._default_openrouter_client = None
         self._default_ilaas_client = None
         self._ollama_client = None
-        self._hf_client = None
 
         self._logger = logger
         self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENCY)
@@ -114,13 +109,7 @@ class LLMClient:
                 )
             return self._ollama_client
 
-        # 2. HuggingFace
-        elif provider == "huggingface":
-            if not self._hf_client:
-                self._hf_client = AsyncInferenceClient(token=self._hf_token)
-            return self._hf_client
-
-        # 3. OpenRouter
+        # 2. OpenRouter
         elif provider == "openrouter":
             key = keys.get('openrouter') or self._default_openrouter_key
 
@@ -137,7 +126,7 @@ class LLMClient:
                 base_url="https://openrouter.ai/api/v1"
             )
 
-        # 4. ILaaS
+        # 3. ILaaS
         elif provider == "ilaas":
             key = keys.get('ilaas') or self._default_ilaas_key
 
@@ -154,7 +143,7 @@ class LLMClient:
                 base_url="https://llm.ilaas.fr/v1"
             )
 
-        # 5. OpenAI
+        # 4. OpenAI
         else:
             key = keys.get('openai') or self._default_openai_key
 
