@@ -1,8 +1,14 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock
-from services.generation_service import run_generation
+from services.generation_service import _ws_verification_callback, run_generation
 from services.optimization_service import run_optimization
-from synthline.types import GenerationResult, OptimizedPrompt
+from synthline.errors import StructuredOutputCompatibilityError
+from synthline.types import (
+    GenerationResult,
+    OptimizedPrompt,
+    PromptUpdateEvent,
+    VerificationEvent,
+)
 
 @pytest.fixture
 def mock_deps():
@@ -90,6 +96,34 @@ def test_run_generation_flow(mock_deps):
 
     asyncio.run(run())
 
+
+def test_verification_event_is_forwarded_to_websocket(mock_deps):
+    import asyncio
+
+    async def run():
+        mock_ws = AsyncMock()
+        mock_deps.system_ctx.get_connection.return_value = mock_ws
+        mock_deps.system_ctx.start_operation("id", "generation", "op-verify")
+        callback = _ws_verification_callback(mock_deps, "id", "op-verify")
+
+        await callback(VerificationEvent(
+            attempt=2,
+            max_attempts=4,
+            accepted=7,
+            needed=10,
+            progress=88.0,
+        ))
+
+        payload = mock_ws.send_json.call_args[0][0]
+        assert payload["type"] == "verification_progress"
+        assert payload["attempt"] == 2
+        assert payload["max_attempts"] == 4
+        assert payload["accepted_so_far"] == 7
+        assert payload["samples_needed"] == 10
+        assert payload["progress"] == 88.0
+
+    asyncio.run(run())
+
 def test_run_generation_no_ws(mock_deps):
     """Test runs gracefully when WS is missing/disconnected."""
     import asyncio
@@ -148,6 +182,30 @@ def test_run_generation_llm_error_payload(mock_deps):
     asyncio.run(run())
 
 
+def test_run_generation_structured_output_error_is_user_facing(mock_deps):
+    """Structured-output incompatibility is explained without leaking SDK details."""
+    import asyncio
+
+    async def run():
+        mock_ws = AsyncMock()
+        mock_deps.system_ctx.get_connection.return_value = mock_ws
+        mock_deps.generator.generate.side_effect = StructuredOutputCompatibilityError(
+            "The selected model or serving endpoint for 'ollama/test-model' cannot provide "
+            "the structured outputs Synthline requires. Choose a compatible model and endpoint "
+            "with strict JSON Schema support, then try again."
+        )
+
+        await run_generation({}, "id", "op-structured", mock_deps)
+
+        payload = mock_ws.send_json.call_args[0][0]
+        assert payload["type"] == "error"
+        assert not payload["message"].startswith("Generation error:")
+        assert "unexpected keyword argument" not in payload["message"]
+        assert "Choose a compatible model and endpoint" in payload["message"]
+
+    asyncio.run(run())
+
+
 def test_run_optimization_llm_error_payload(mock_deps):
     """Test optimization reports typed LLM errors over websocket."""
     import asyncio
@@ -173,5 +231,53 @@ def test_run_optimization_llm_error_payload(mock_deps):
         assert payload["message"] == "Optimization error: LLM rate-limited: 429 Too Many Requests"
         assert payload["operation"] == "optimization"
         assert isinstance(payload.get("operation_id"), str)
+
+    asyncio.run(run())
+
+
+def test_prompt_update_event_is_forwarded_to_websocket(mock_deps):
+    import asyncio
+
+    async def run():
+        mock_ws = AsyncMock()
+        mock_deps.system_ctx.get_connection.return_value = mock_ws
+
+        async def optimize_with_update(**kwargs):
+            await kwargs["prompt_update_callback"](PromptUpdateEvent(
+                prompt="Improved",
+                score=0.8,
+                iteration=1,
+                total_iterations=2,
+                config_index=0,
+                total_configs=1,
+            ))
+            return [OptimizedPrompt(
+                prompt="Improved",
+                score=0.8,
+                config={"prompt": "Initial"},
+            )]
+
+        mock_deps.pace.optimize_batch.side_effect = optimize_with_update
+        await run_optimization(
+            {
+                "fm_configuration": {},
+                "samples_per_prompt": 1,
+                "pace_iterations": 2,
+                "pace_actors": 1,
+                "pace_candidates": 1,
+            },
+            "id",
+            mock_deps,
+            operation_id="op-update",
+        )
+
+        payloads = [call.args[0] for call in mock_ws.send_json.call_args_list]
+        update = next(payload for payload in payloads if payload["type"] == "prompt_update")
+        assert update["prompt"] == "Improved"
+        assert update["score"] == 0.8
+        assert update["iteration"] == 1
+        assert update["atomic_config_index"] == 0
+        assert update["total_configs"] == 1
+        assert "iteration 1/2" in update["detail"]
 
     asyncio.run(run())

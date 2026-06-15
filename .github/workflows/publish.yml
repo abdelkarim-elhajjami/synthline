@@ -6,13 +6,56 @@ on:
       - "v*"
 
 jobs:
-  test:
+  minimum-provider-dependencies:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Run full suite with minimum provider SDKs
+        run: |
+          pip install -r requirements.txt pytest pytest-asyncio \
+            "openai==1.60.0" "huggingface_hub==0.32.6"
+          PYTHONPATH=.:server pytest -q
+
+  test:
+    needs: minimum-provider-dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify release versions
+        run: |
+          python - <<'PY'
+          import ast
+          import json
+          import os
+          import pathlib
+          import tomllib
+
+          project_version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          module = ast.parse(pathlib.Path("synthline/__init__.py").read_text())
+          sdk_version = next(
+              ast.literal_eval(node.value)
+              for node in module.body
+              if isinstance(node, ast.Assign)
+              and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
+          )
+          web_version = json.loads(pathlib.Path("web/package.json").read_text())["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+
+          if len({project_version, sdk_version, web_version}) != 1:
+              raise SystemExit(
+                  f"Version mismatch: project={project_version}, sdk={sdk_version}, web={web_version}"
+              )
+          if tag != f"v{project_version}":
+              raise SystemExit(f"Tag {tag} does not match package version v{project_version}")
+          PY
 
       - name: Install dependencies
         run: |
@@ -37,8 +80,12 @@ jobs:
 
       - name: Build package
         run: |
-          pip install build
+          pip install -r requirements.txt build twine
           python -m build
+          twine check dist/*
+          pip install --force-reinstall --no-deps dist/*.whl
+          cd "$(mktemp -d)"
+          python -c "import synthline; print(synthline.__version__)"
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

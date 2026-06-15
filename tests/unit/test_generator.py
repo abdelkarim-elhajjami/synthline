@@ -1,6 +1,7 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from synthline.core.generator import Generator
+from synthline.errors import StructuredOutputCompatibilityError, StructuredOutputResponseError
 
 @pytest.fixture
 def mock_llm():
@@ -58,8 +59,8 @@ def test_generate_success(generator, mock_llm, mock_promptline):
 
     asyncio.run(run())
 
-def test_generate_handles_llm_failure(generator, mock_llm, mock_logger, mock_promptline):
-    """Test graceful degradation on LLM errors (returns empty, no crash)."""
+def test_generate_raises_on_llm_failure(generator, mock_llm, mock_logger, mock_promptline):
+    """LLM errors abort generation instead of returning a partial dataset."""
     import asyncio
     async def run():
         features = {
@@ -92,9 +93,8 @@ def test_generate_handles_llm_failure(generator, mock_llm, mock_logger, mock_pro
 
         mock_llm.get_batch_completions.side_effect = FakeProviderError()
 
-        result = await generator.generate(features)
-        assert result.samples == []
-        assert result.fewer_samples_received is True
+        with pytest.raises(FakeProviderError, match="API request rejected"):
+            await generator.generate(features)
 
     asyncio.run(run())
 
@@ -135,9 +135,10 @@ def test_progress_reporting(generator, mock_llm, mock_promptline):
 
     asyncio.run(run())
 
-def test_generate_token_limit_handling(generator, mock_llm, mock_promptline, mock_logger):
-    """Test that valid JSON with short count is accepted (not retried),
-    and the loop fills the remaining samples on the next call."""
+def test_generate_raises_when_structured_output_has_wrong_count(
+    generator, mock_llm, mock_promptline, mock_logger
+):
+    """Valid JSON that violates the requested schema aborts generation."""
     import asyncio
     async def run():
         features = {
@@ -159,26 +160,107 @@ def test_generate_token_limit_handling(generator, mock_llm, mock_promptline, moc
         mock_promptline.get_atomic_configurations.return_value = [features.copy()]
         mock_promptline.build.return_value = "Generate requirements..."
 
-        # First call returns 1/2 as valid JSON → accepted (not retried).
-        # Second call fills the remaining 1.
-        mock_llm.get_batch_completions.side_effect = [
-            ['{"samples": ["The system must auto-scale based on CPU usage."]}'],
-            ['{"samples": ["The system must support multi-region deployment."]}'],
+        mock_llm.get_batch_completions.return_value = [
+            '{"samples": ["The system must auto-scale based on CPU usage."]}'
         ]
 
-        # Act
-        result = await generator.generate(features)
+        with pytest.raises(
+            StructuredOutputResponseError,
+            match=(
+                "The selected model or serving endpoint for 'gpt-4' did not return.*"
+                "Expected exactly 2 samples"
+            ),
+        ):
+            await generator.generate(features)
 
-        # Assert — both samples collected across two calls
-        assert len(result.samples) == 2
-        assert result.samples[0]["text"] == "The system must auto-scale based on CPU usage."
-        assert result.samples[1]["text"] == "The system must support multi-region deployment."
+        assert mock_llm.get_batch_completions.call_count == 1
 
-        # No warning — valid JSON is accepted silently
-        mock_logger.log_warning.assert_not_called()
+    asyncio.run(run())
 
-        # Two calls: first returned 1, second filled the gap
-        assert mock_llm.get_batch_completions.call_count == 2
+
+def test_generate_preserves_llm_structured_response_error(
+    generator, mock_llm, mock_promptline
+):
+    import asyncio
+
+    async def run():
+        error = StructuredOutputResponseError("Provider returned no completion choice.")
+        mock_llm.get_batch_completions.side_effect = error
+        mock_promptline.get_atomic_configurations.return_value = [{
+            "llm": "gpt-4",
+            "temperature": 0.7,
+            "top_p": 1.0,
+        }]
+        mock_promptline.build.return_value = "Generate requirements..."
+
+        with pytest.raises(StructuredOutputResponseError) as exc_info:
+            await generator.generate({
+                "llm": "gpt-4",
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "total_samples": 1,
+                "samples_per_prompt": 1,
+            })
+
+        assert exc_info.value is error
+
+    asyncio.run(run())
+
+
+def test_generate_rejects_invalid_samples_per_prompt(generator, mock_llm):
+    import asyncio
+
+    async def run():
+        with pytest.raises(ValueError, match="samples_per_prompt must be at least 1"):
+            await generator.generate({
+                "llm": "gpt-4",
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "total_samples": 1,
+                "samples_per_prompt": 0,
+            })
+
+        mock_llm.get_batch_completions.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_generate_rejects_invalid_total_samples(generator, mock_llm):
+    import asyncio
+
+    async def run():
+        with pytest.raises(ValueError, match="total_samples must be at least 1"):
+            await generator.generate({
+                "llm": "gpt-4",
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "total_samples": 0,
+                "samples_per_prompt": 1,
+            })
+
+        mock_llm.get_batch_completions.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_generate_rejects_missing_atomic_configurations(
+    generator, mock_llm, mock_promptline
+):
+    import asyncio
+
+    async def run():
+        mock_promptline.get_atomic_configurations.return_value = []
+
+        with pytest.raises(ValueError, match="at least one atomic configuration"):
+            await generator.generate({
+                "llm": "gpt-4",
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "total_samples": 1,
+                "samples_per_prompt": 1,
+            })
+
+        mock_llm.get_batch_completions.assert_not_called()
 
     asyncio.run(run())
 
@@ -220,7 +302,6 @@ def test_generate_for_configs_single_config(generator, mock_llm):
 
         assert len(result.samples) == 2
         assert result.samples[0]["text"] == "Sample 1"
-        assert result.fewer_samples_received is False
         mock_llm.get_batch_completions.assert_called_once()
 
     asyncio.run(run())
@@ -235,7 +316,7 @@ def test_generate_for_configs_multi_config(generator, mock_llm):
         config_b = _make_config("B")
 
         mock_llm.get_batch_completions.side_effect = [
-            ['{"samples": ["A1"]}'],
+            ['{"samples": ["A1", "A2"]}'],
             ['{"samples": ["B1", "B2"]}'],
         ]
 
@@ -303,8 +384,8 @@ def test_generate_for_configs_sets_optimized_prompt_from_stored(
     asyncio.run(run())
 
 
-def test_generate_for_configs_handles_llm_failure(generator, mock_llm, mock_logger):
-    """One config fails, other succeeds — partial results returned."""
+def test_generate_for_configs_raises_on_llm_failure(generator, mock_llm, mock_logger):
+    """Regeneration errors abort instead of returning partial results."""
     import asyncio
 
     async def run():
@@ -316,14 +397,13 @@ def test_generate_for_configs_handles_llm_failure(generator, mock_llm, mock_logg
             ['{"samples": ["B1"]}'],
         ]
 
-        result = await generator.generate_for_configs(
-            config_requests=[(config_a, 1), (config_b, 1)],
-            samples_per_prompt=1,
-        )
+        with pytest.raises(RuntimeError, match="Provider failed"):
+            await generator.generate_for_configs(
+                config_requests=[(config_a, 1), (config_b, 1)],
+                samples_per_prompt=1,
+            )
 
-        assert len(result.samples) == 1
-        assert result.samples[0]["text"] == "B1"
-        assert result.fewer_samples_received is True
+        assert mock_llm.get_batch_completions.call_count == 1
 
     asyncio.run(run())
 
@@ -362,6 +442,20 @@ def test_generate_for_configs_empty_request(generator):
         )
 
         assert result.samples == []
-        assert result.fewer_samples_received is False
+
+    asyncio.run(run())
+
+
+def test_generate_for_configs_rejects_negative_target(generator, mock_llm):
+    import asyncio
+
+    async def run():
+        with pytest.raises(ValueError, match="cannot be negative"):
+            await generator.generate_for_configs(
+                config_requests=[(_make_config("A"), -1)],
+                samples_per_prompt=1,
+            )
+
+        mock_llm.get_batch_completions.assert_not_called()
 
     asyncio.run(run())

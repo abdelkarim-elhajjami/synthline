@@ -1,4 +1,4 @@
-"""LLM sample generation with retry logic and config-aware distribution."""
+"""LLM sample generation with config-aware distribution."""
 
 import math
 import random
@@ -7,12 +7,16 @@ from typing import Any, Dict, List, Optional, Tuple
 from synthline.core.llm import LLMClient
 from synthline.core.promptline import Promptline
 from synthline.core.schemas import samples_schema
-from synthline.types import GenerationResult, LLMCallResult, ProgressCallback
+from synthline.errors import (
+    StructuredOutputCompatibilityError,
+    StructuredOutputError,
+    StructuredOutputResponseError,
+    structured_output_response_error,
+)
+from synthline.types import GenerationResult, ProgressCallback
 from synthline.utils.logger import Logger
-from synthline.utils.parsing import parse_completion_with_meta
+from synthline.utils.parsing import parse_completion
 from synthline.utils.progress import report_progress
-
-MAX_PARSE_RETRIES = 3
 
 
 class Generator:
@@ -35,11 +39,13 @@ class Generator:
         api_keys: Optional[Dict[str, str]] = None
     ) -> GenerationResult:
         all_samples = []
-        fewer_samples_received = False
-        parsing_degraded = False
 
         total_samples = int(features['total_samples'])
         samples_per_prompt = int(features['samples_per_prompt'])
+        if total_samples < 1:
+            raise ValueError("total_samples must be at least 1.")
+        if samples_per_prompt < 1:
+            raise ValueError("samples_per_prompt must be at least 1.")
 
         llm_settings = {k: features[k] for k in ['llm', 'temperature', 'top_p']}
         if features.get('reasoning'):
@@ -59,6 +65,9 @@ class Generator:
             for config in atomic_configs:
                 config.update(llm_settings)
 
+        if not atomic_configs:
+            raise ValueError("Generation requires at least one atomic configuration.")
+
         n_configs = len(atomic_configs)
         active_configs, sample_counts = self._distribute_samples(
             total_samples, n_configs, samples_per_prompt, atomic_configs
@@ -70,55 +79,21 @@ class Generator:
             samples_for_config = sample_counts[i]
 
             config_samples = []
-            retries = 0
-            max_retries = MAX_PARSE_RETRIES
-            max_calls = (samples_for_config // max(1, samples_per_prompt)) + max_retries + 1
-            calls = 0
-            while len(config_samples) < samples_for_config and calls < max_calls:
-                calls += 1
+            while len(config_samples) < samples_for_config:
                 samples_needed = samples_for_config - len(config_samples)
                 request_count = min(samples_needed, samples_per_prompt)
 
-                try:
-                    call = await self._generate_samples(
-                        atomic_config=config,
-                        request_count=request_count,
-                        api_keys=api_keys,
-                    )
-                except Exception:
-                    fewer_samples_received = True
-                    break
+                generated = await self._generate_samples(
+                    atomic_config=config,
+                    request_count=request_count,
+                    api_keys=api_keys,
+                )
 
-                if call.parsing_degraded:
-                    parsing_degraded = True
-
-                # Retry only on actual parse failure (malformed output)
-                if call.parsing_degraded and call.valid_count < request_count:
-                    retries += 1
-                    if retries >= max_retries:
-                        fewer_samples_received = True
-                        self._logger.log_warning(
-                            f"Parse failed {retries}x, skipping config "
-                            f"({len(config_samples)}/{samples_for_config} collected).",
-                            "generator",
-                        )
-                        break
-                    self._logger.log_warning(
-                        f"Got {call.valid_count}/{request_count} samples "
-                        f"({call.parse_method}), retrying ({retries}/{max_retries}).",
-                        "generator",
-                    )
-                    continue
-
-                # Accept valid samples (loop fills any gap on next iteration)
-                if call.samples:
-                    config_samples.extend(call.samples)
-                    generated_so_far += len(call.samples)
-                    if progress_callback and total_samples > 0:
-                        progress = min(100.0, (generated_so_far / total_samples) * 100.0)
-                        await report_progress(progress_callback, progress, "Generating samples")
-                else:
-                    break
+                config_samples.extend(generated)
+                generated_so_far += len(generated)
+                if progress_callback and total_samples > 0:
+                    progress = min(100.0, (generated_so_far / total_samples) * 100.0)
+                    await report_progress(progress_callback, progress, "Generating samples")
 
             all_samples.extend(config_samples)
 
@@ -129,8 +104,6 @@ class Generator:
 
         return GenerationResult(
             samples=all_samples,
-            fewer_samples_received=fewer_samples_received,
-            parsing_degraded=parsing_degraded,
         )
 
     async def generate_for_configs(
@@ -149,64 +122,38 @@ class Generator:
         that rejected samples are replaced from the *same* configuration.
         """
         all_samples: List[Dict[str, Any]] = []
-        fewer_samples_received = False
-        parsing_degraded = False
+        if samples_per_prompt < 1:
+            raise ValueError("samples_per_prompt must be at least 1.")
 
         for config, target_count in config_requests:
+            if target_count < 0:
+                raise ValueError("Target sample counts cannot be negative.")
+
             # Ensure the exact same prompt is reused (bypass promptline.build).
             regen_config = {k: v for k, v in config.items() if k != "prompt"}
             if "optimized_prompt" not in regen_config and "prompt" in config:
                 regen_config["optimized_prompt"] = config["prompt"]
 
             config_samples: List[Dict[str, Any]] = []
-            retries = 0
-            max_retries = MAX_PARSE_RETRIES
-            max_calls = math.ceil(target_count / max(1, samples_per_prompt)) + max_retries + 1
-            calls = 0
 
-            while len(config_samples) < target_count and calls < max_calls:
-                calls += 1
+            while len(config_samples) < target_count:
                 # Always request samples_per_prompt to keep generation
                 # conditions identical to the original run (same prompt
                 # text, same JSON schema).  Excess samples are trimmed.
                 request_count = samples_per_prompt
 
-                try:
-                    call = await self._generate_samples(
-                        atomic_config=regen_config,
-                        request_count=request_count,
-                        api_keys=api_keys,
-                    )
-                except Exception:
-                    fewer_samples_received = True
-                    break
+                generated = await self._generate_samples(
+                    atomic_config=regen_config,
+                    request_count=request_count,
+                    api_keys=api_keys,
+                )
 
-                if call.parsing_degraded:
-                    parsing_degraded = True
-
-                if call.parsing_degraded and call.valid_count < request_count:
-                    retries += 1
-                    if retries >= max_retries:
-                        fewer_samples_received = True
-                        self._logger.log_warning(
-                            f"[regen] Parse failed {retries}x, skipping config "
-                            f"({len(config_samples)}/{target_count} collected).",
-                            "generator",
-                        )
-                        break
-                    continue
-
-                if call.samples:
-                    config_samples.extend(call.samples)
-                else:
-                    break
+                config_samples.extend(generated)
 
             all_samples.extend(config_samples[:target_count])
 
         return GenerationResult(
             samples=all_samples,
-            fewer_samples_received=fewer_samples_received,
-            parsing_degraded=parsing_degraded,
         )
 
     async def _generate_samples(
@@ -214,10 +161,8 @@ class Generator:
         atomic_config: Dict[str, Any],
         request_count: int,
         api_keys: Optional[Dict[str, str]] = None
-    ) -> LLMCallResult:
+    ) -> List[Dict[str, Any]]:
         """Generate samples from a single LLM call."""
-        new_samples: List[Dict[str, Any]] = []
-
         response_format = samples_schema(request_count)
 
         if 'optimized_prompt' in atomic_config:
@@ -234,18 +179,28 @@ class Generator:
             )
             completion = completion_list[0]
 
-            parsed = parse_completion_with_meta(completion, request_count)
-            sample_texts = parsed.samples
-            parsing_degraded = parsed.degraded
-            parse_method = parsed.method
+            sample_texts = parse_completion(completion, request_count)
+            return [
+                {
+                    "text": sample_text,
+                    "config": {**atomic_config, "prompt": prompt},
+                }
+                for sample_text in sample_texts
+            ]
 
-            for sample_text in sample_texts[:request_count]:
-                if sample_text and sample_text.strip():
-                    new_samples.append({
-                        "text": sample_text.strip(),
-                        "config": {**atomic_config, "prompt": prompt},
-                    })
-
+        except StructuredOutputCompatibilityError:
+            raise
+        except StructuredOutputResponseError:
+            raise
+        except StructuredOutputError as e:
+            model = atomic_config.get("llm", "unknown")
+            error = structured_output_response_error(str(model), e)
+            self._logger.log_error(
+                f"Generation error: {error}",
+                "generator",
+                {"atomic_config": atomic_config},
+            )
+            raise error from e
         except Exception as e:
             self._logger.log_error(
                 f"Generation error: {e}",
@@ -253,14 +208,6 @@ class Generator:
                 {"atomic_config": atomic_config},
             )
             raise
-
-        valid_count = sum(1 for s in sample_texts if s and s.strip())
-        return LLMCallResult(
-            samples=new_samples,
-            valid_count=valid_count,
-            parsing_degraded=parsing_degraded,
-            parse_method=parse_method,
-        )
 
     def _distribute_samples(
         self,

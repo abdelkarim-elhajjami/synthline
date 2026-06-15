@@ -8,6 +8,7 @@ import json
 from typing import Any, Dict, List, Tuple
 
 from synthline.core.align_scorer import AlignScorer
+from synthline.errors import AlignmentVerificationError
 from synthline.types import ScoredSample
 from synthline.utils.logger import Logger
 
@@ -74,7 +75,15 @@ class AlignVerifier:
                     f"AlignVerifier scoring failed: {exc}",
                     "align_verifier",
                 )
-                scores = [0.0] * len(texts)
+                raise AlignmentVerificationError(
+                    "Alignment verification could not score the generated samples. "
+                    "Check the NLI model installation and runtime resources, then try again."
+                ) from exc
+
+            if len(scores) != len(texts):
+                raise AlignmentVerificationError(
+                    "Alignment verification returned an unexpected number of scores."
+                )
 
             for i, (orig_idx, sample) in enumerate(group_items):
                 scored[orig_idx] = (sample, scores[i])

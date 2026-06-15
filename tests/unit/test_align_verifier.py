@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from synthline.core.align_verifier import AlignVerifier
+from synthline.errors import AlignmentVerificationError
 
 
 def _make_sample(text: str, constraints=None):
@@ -130,18 +131,29 @@ class TestVerifyEdgeCases:
         assert len(accepted) == 0
         assert len(rejected) == 1
 
-    def test_scorer_failure_assigns_zero_score(self):
+    def test_scorer_failure_aborts_verification(self):
         scorer = MagicMock()
         scorer.score_samples.side_effect = RuntimeError("model failed")
         logger = MagicMock()
         verifier = AlignVerifier(align_scorer=scorer, logger=logger)
 
         samples = [_make_sample("will fail")]
-        accepted, rejected = verifier.verify(samples, threshold=0.5)
+        with pytest.raises(
+            AlignmentVerificationError,
+            match="could not score the generated samples",
+        ):
+            verifier.verify(samples, threshold=0.5)
 
-        assert len(accepted) == 0
-        assert len(rejected) == 1
-        assert rejected[0][1] == 0.0
+    def test_scorer_result_count_must_match_samples(self):
+        scorer = MagicMock()
+        scorer.score_samples.return_value = []
+        verifier = AlignVerifier(align_scorer=scorer, logger=MagicMock())
+
+        with pytest.raises(
+            AlignmentVerificationError,
+            match="unexpected number of scores",
+        ):
+            verifier.verify([_make_sample("missing score")], threshold=0.5)
 
     def test_max_retries_constant(self):
         assert AlignVerifier.MAX_RETRIES == 3

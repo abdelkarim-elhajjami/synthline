@@ -4,7 +4,8 @@ from typing import Any, Dict, Optional
 from dependencies import Dependencies
 from synthline._runtime import runtime_from_deps
 from synthline.client import Synthline
-from synthline.types import PromptEntry, PromptSet
+from synthline.types import PromptEntry, PromptSet, VerificationEvent
+from utils.errors import operation_error_message
 from utils.websocket import send_to_connection
 
 
@@ -135,7 +136,7 @@ async def run_generation(
             connection_id=connection_id,
             payload={
                 "type": "error",
-                "message": f"Generation error: {exc}",
+                "message": operation_error_message("generation", exc),
                 "operation": "generation",
                 "operation_id": operation_id,
             },
@@ -177,13 +178,7 @@ def _ws_progress_callback(deps: Dependencies, connection_id: str, operation_id: 
 
 
 def _ws_verification_callback(deps: Dependencies, connection_id: str, operation_id: str):
-    async def callback(
-        attempt: int,
-        max_attempts: int,
-        accepted_so_far: int,
-        samples_needed: int,
-        progress: float,
-    ) -> None:
+    async def callback(event: VerificationEvent) -> None:
         if not _is_active(deps, connection_id, operation_id):
             return
         await send_to_connection(
@@ -193,11 +188,11 @@ def _ws_verification_callback(deps: Dependencies, connection_id: str, operation_
                 "type": "verification_progress",
                 "operation": "generation",
                 "operation_id": operation_id,
-                "attempt": attempt,
-                "max_attempts": max_attempts,
-                "accepted_so_far": accepted_so_far,
-                "samples_needed": samples_needed,
-                "progress": progress,
+                "attempt": event.attempt,
+                "max_attempts": event.max_attempts,
+                "accepted_so_far": event.accepted,
+                "samples_needed": event.needed,
+                "progress": event.progress,
                 "message": "Verifying alignment",
             },
             logger=deps.logger,

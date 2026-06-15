@@ -9,6 +9,12 @@ from synthline.core.align_scorer import AlignScorer
 from synthline.core.constants import PACE_EVENT_FINAL, PACE_EVENT_NEW_BEST, extract_fm_constraints
 from synthline.core.llm import LLMClient
 from synthline.core.schemas import samples_schema
+from synthline.errors import (
+    StructuredOutputCompatibilityError,
+    StructuredOutputError,
+    StructuredOutputResponseError,
+    structured_output_response_error,
+)
 from synthline.types import (
     OptimizedPrompt,
     ProgressCallback,
@@ -51,6 +57,22 @@ class PACE:
         api_keys: Optional[Dict[str, str]] = None
     ) -> List[OptimizedPrompt]:
         """Optimize multiple prompts in parallel (one for each atomic configuration)."""
+        for name, value in (
+            ("n_iterations", n_iterations),
+            ("n_actors", n_actors),
+            ("n_candidates", n_candidates),
+        ):
+            if value < 1:
+                raise ValueError(f"{name} must be at least 1.")
+
+        samples_per_prompt = int(features.get("samples_per_prompt", 0))
+        if samples_per_prompt < 1:
+            raise ValueError("samples_per_prompt must be at least 1.")
+        normalized_features = {**features, "samples_per_prompt": samples_per_prompt}
+        self._resolve_alpha(normalized_features)
+        if not atomic_configs:
+            raise ValueError("PACE optimization requires at least one atomic configuration.")
+
         semaphore = asyncio.Semaphore(LLMClient.MAX_CONCURRENCY)
         tasks: List[asyncio.Task] = []
         total_configs = len(atomic_configs)
@@ -69,7 +91,8 @@ class PACE:
             atomic_config: Dict[str, Any],
         ) -> Tuple[int, OptimizedPrompt]:
             async with semaphore:
-                features_merged = {**features, **atomic_config}
+                features_merged = {**normalized_features, **atomic_config}
+                features_merged["samples_per_prompt"] = samples_per_prompt
                 initial_prompt = atomic_config.get('prompt', None)
                 prompt, score = await self._optimize_atomic_prompt(
                     features=features_merged,
@@ -91,25 +114,21 @@ class PACE:
             tasks.append(asyncio.create_task(_run_config(i, atomic_config)))
 
         indexed_results: Dict[int, OptimizedPrompt] = {}
-        failed_count = 0
         for task in asyncio.as_completed(tasks):
             try:
                 idx, result = await task
                 indexed_results[idx] = result
             except Exception as e:
-                failed_count += 1
                 self._logger.log_error(
-                    f"Config failed, skipping: {str(e)}",
+                    f"PACE optimization failed: {str(e)}",
                     "pace_batch",
                     {},
                 )
-
-        if failed_count:
-            self._logger.log_error(
-                f"{failed_count}/{total_configs} configs failed during PACE optimization",
-                "pace_batch",
-                {},
-            )
+                for pending_task in tasks:
+                    if not pending_task.done():
+                        pending_task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
 
         results: List[OptimizedPrompt] = [
             indexed_results[idx] for idx in sorted(indexed_results)
@@ -190,21 +209,14 @@ class PACE:
                 current_prompt = candidate_prompt
 
                 if prompt_update_callback:
-                    try:
-                        await prompt_update_callback(PromptUpdateEvent(
-                            prompt=best_prompt,
-                            score=best_score,
-                            iteration=t + 1,
-                            total_iterations=n_iterations,
-                            config_index=atomic_config_index,
-                            total_configs=total_configs,
-                        ))
-                    except Exception as cb_error:
-                        self._logger.log_error(
-                            f"Prompt update callback error: {str(cb_error)}",
-                            "pace",
-                            {"iteration": t + 1}
-                        )
+                    await prompt_update_callback(PromptUpdateEvent(
+                        prompt=best_prompt,
+                        score=best_score,
+                        iteration=t + 1,
+                        total_iterations=n_iterations,
+                        config_index=atomic_config_index,
+                        total_configs=total_configs,
+                    ))
 
             if progress_callback:
                 await progress_callback()
@@ -226,16 +238,30 @@ class PACE:
         api_keys: Optional[Dict[str, str]] = None
     ) -> str:
         """Run the actor to generate synthetic samples based on the current prompt."""
+        samples_per_prompt = int(features["samples_per_prompt"])
         try:
-            samples_per_prompt = int(features["samples_per_prompt"])
             completions = await self._llm.get_batch_completions(
                 prompts=[prompt],
                 features=features,
                 api_keys=api_keys,
                 response_format=samples_schema(samples_per_prompt),
             )
+            parse_completion(completions[0], samples_per_prompt)
             return completions[0]
 
+        except StructuredOutputCompatibilityError:
+            raise
+        except StructuredOutputResponseError:
+            raise
+        except StructuredOutputError as e:
+            model = features.get("llm", "unknown")
+            error = structured_output_response_error(str(model), e)
+            self._logger.log_error(
+                f"Actor error: {error}",
+                "pace",
+                {"prompt": prompt},
+            )
+            raise error from e
         except Exception as e:
             self._logger.log_error(
                 f"Actor error: {str(e)}",
@@ -365,22 +391,11 @@ Return only the rewritten instruction."""
         samples_per_prompt: int,
         features: Dict[str, Any],
     ) -> float:
-        """Evaluate the prompt using weighted diversity and alignment scores.
-        Returns 0.0 if any completion fails to parse correctly or yields the wrong number of samples.
-        """
+        """Evaluate the prompt using weighted diversity and alignment scores."""
         parsed_samples = []
 
         for raw_completion in raw_completions:
             parsed = parse_completion(raw_completion, samples_per_prompt)
-            # Strict check 1: Did parsing fail completely?
-            if parsed is None:
-                return 0.0
-
-            # Strict check 2: Did parsing yield the exact number of expected samples?
-            if len(parsed) != samples_per_prompt:
-                return 0.0
-
-            # If checks pass, add the valid samples
             parsed_samples.extend(parsed)
 
         # Need at least two samples to calculate pairwise distance

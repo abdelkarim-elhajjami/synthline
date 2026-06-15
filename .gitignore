@@ -36,5 +36,6 @@ sessions/
 *.tsbuildinfo
 next-env.d.ts
 
-# Claude
+# Agents
 .claude/
+.codex/

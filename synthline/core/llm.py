@@ -1,5 +1,5 @@
 """
-Client for OpenAI, OpenRouter, and HuggingFace APIs.
+Multi-provider LLM client.
 """
 import asyncio
 import copy
@@ -8,14 +8,33 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 from openai import AsyncClient, RateLimitError, APIStatusError, APITimeoutError, APIConnectionError
 from huggingface_hub import AsyncInferenceClient
+from synthline.core.model_compatibility import validate_model_compatibility
+from synthline.errors import (
+    ProviderConfigurationError,
+    StructuredOutputCompatibilityError,
+    StructuredOutputError,
+    structured_output_response_error,
+)
 from synthline.utils.logger import Logger
 
-# Anthropic model prefixes — these models don't support minItems/maxItems in JSON schemas
-_ANTHROPIC_PREFIXES = ("anthropic/",)
+_PROVIDER_PREFIXES = {
+    "ollama/": "ollama",
+    "huggingface/": "huggingface",
+    "openrouter/": "openrouter",
+    "ilaas/": "ilaas",
+    "openai/": "openai",
+}
 
+def _response_format_for_model(
+    model_name: str,
+    response_format: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Normalize the shared schema only where a model family requires it."""
+    if not model_name.startswith("anthropic/"):
+        return response_format
 
-def _sanitize_schema_for_anthropic(response_format: Dict[str, Any]) -> Dict[str, Any]:
-    """Strip array constraints (minItems, maxItems) unsupported by Anthropic."""
+    # Claude structured outputs reject some JSON Schema constraints. Synthline
+    # still validates the exact sample count after generation.
     rf = copy.deepcopy(response_format)
     schema = rf.get("json_schema", {}).get("schema", {})
     for prop in schema.get("properties", {}).values():
@@ -26,7 +45,7 @@ def _sanitize_schema_for_anthropic(response_format: Dict[str, Any]) -> Dict[str,
 
 
 class LLMClient:
-    """Client for OpenAI, OpenRouter, and HuggingFace APIs."""
+    """Client for OpenAI-compatible APIs and Hugging Face inference."""
 
     REQUEST_TIMEOUT = 120
     MAX_RETRIES = 5
@@ -58,26 +77,28 @@ class LLMClient:
 
     @staticmethod
     def _provider_for_model(model: str) -> str:
-        if model.startswith("ollama/"):
-            return "ollama"
-        if model.startswith("huggingface/"):
-            return "huggingface"
-        if model.startswith("openrouter/"):
-            return "openrouter"
-        if model.startswith("ilaas/"):
-            return "ilaas"
-        if model.startswith("openai/"):
-            return "openai"
+        for prefix, provider in _PROVIDER_PREFIXES.items():
+            if model.startswith(prefix):
+                return provider
         return "openai"
 
     @staticmethod
     def _model_name_for_request(model: str) -> str:
-        provider = LLMClient._provider_for_model(model)
-        if provider == "ollama":
-            return model.split("/")[-1]
-        if "/" in model and provider in {"huggingface", "openrouter", "ilaas", "openai"}:
-            return model.split("/", 1)[1]
+        for prefix in _PROVIDER_PREFIXES:
+            if model.startswith(prefix):
+                return model[len(prefix):]
         return model
+
+    @staticmethod
+    def _normalize_ollama_base_url(base_url: Optional[str]) -> str:
+        """Return an Ollama OpenAI-compatible base URL."""
+        if not base_url or not base_url.strip():
+            raise ProviderConfigurationError(
+                "Ollama is not configured. Set OLLAMA_BASE_URL to the Ollama server URL "
+                "(for example, http://localhost:11434) and try again."
+            )
+        normalized = base_url.strip().rstrip("/")
+        return normalized if normalized.endswith("/v1") else f"{normalized}/v1"
 
     def _get_client(self, model: str, api_keys: Optional[Dict[str, str]] = None) -> Any:
         """Return the API client for the specified model and keys."""
@@ -88,7 +109,7 @@ class LLMClient:
         if provider == "ollama":
             if not self._ollama_client:
                 self._ollama_client = self._create_async_client(
-                    base_url=self._ollama_base_url,
+                    base_url=self._normalize_ollama_base_url(self._ollama_base_url),
                     api_key="dummy"
                 )
             return self._ollama_client
@@ -156,6 +177,56 @@ class LLMClient:
         )
 
     @staticmethod
+    def _is_structured_output_compatibility_error(error: Exception) -> bool:
+        """Return whether an error indicates unsupported structured-output parameters."""
+        details = " ".join([
+            str(error),
+            str(getattr(error, "body", "")),
+            str(getattr(error, "message", "")),
+        ]).lower()
+        structured_terms = (
+            "structured output",
+            "structured_outputs",
+            "json_schema",
+            "response_format",
+        )
+        rejection_terms = (
+            "does not support",
+            "not supported",
+            "unsupported",
+            "unexpected keyword argument",
+            "unknown parameter",
+            "unrecognized parameter",
+        )
+        return (
+            any(term in details for term in structured_terms)
+            and any(term in details for term in rejection_terms)
+        )
+
+    @staticmethod
+    def _structured_output_error(model: str) -> StructuredOutputCompatibilityError:
+        return StructuredOutputCompatibilityError(
+            f"The selected model or serving endpoint for '{model}' cannot provide the "
+            "structured outputs Synthline requires. Choose a compatible model and endpoint "
+            "with strict JSON Schema support, then try again."
+        )
+
+    @staticmethod
+    def _empty_response_error(
+        model: str,
+        detail: str,
+        *,
+        structured: bool,
+    ) -> Exception:
+        if structured:
+            return structured_output_response_error(model, StructuredOutputError(detail))
+        return ProviderConfigurationError(
+            f"The selected model or serving endpoint for '{model}' returned no usable "
+            f"completion. {detail} Choose a compatible standard chat or instruct model, "
+            "then try again."
+        )
+
+    @staticmethod
     def _parse_retry_after(error: APIStatusError) -> Optional[float]:
         """Extract retry-after delay from API error response headers."""
         headers = getattr(error, 'response', None)
@@ -200,6 +271,7 @@ class LLMClient:
         (500, 502, 503), using retry-after headers when available and
         exponential backoff as fallback.
         """
+        validate_model_compatibility(model, reasoning)
         client = self._get_client(model, api_keys)
         provider = self._provider_for_model(model)
         model_name = self._model_name_for_request(model)
@@ -214,23 +286,39 @@ class LLMClient:
                     "top_p": top_p,
                     "max_tokens": self.DEFAULT_MAX_TOKENS,
                 }
-                if reasoning:
-                    kwargs.setdefault("extra_body", {})["reasoning"] = reasoning
 
                 if response_format:
-                    if provider == "ollama" and "json_schema" in response_format:
-                        kwargs["format"] = response_format["json_schema"]["schema"]
-                    elif provider != "ollama":
-                        # Anthropic doesn't support minItems/maxItems in JSON schemas
-                        is_anthropic = any(model_name.startswith(p) for p in _ANTHROPIC_PREFIXES)
-                        rf = _sanitize_schema_for_anthropic(response_format) if is_anthropic else response_format
-                        kwargs["response_format"] = rf
+                    kwargs["response_format"] = _response_format_for_model(
+                        model_name,
+                        response_format,
+                    )
+                if provider == "openrouter":
+                    provider_options = kwargs.setdefault("extra_body", {}).setdefault(
+                        "provider",
+                        {},
+                    )
+                    provider_options["require_parameters"] = True
 
-                if provider == "huggingface":
-                    response = await client.chat_completion(**kwargs)
-                else:
-                    response = await client.chat.completions.create(**kwargs)
-                completion_text = response.choices[0].message.content
+                response = await client.chat.completions.create(**kwargs)
+                try:
+                    message = response.choices[0].message
+                except (AttributeError, IndexError, TypeError) as e:
+                    raise self._empty_response_error(
+                        model,
+                        "The provider returned no completion choice.",
+                        structured=response_format is not None,
+                    ) from e
+                completion_text = getattr(message, "content", None)
+                if not isinstance(completion_text, str) or not completion_text.strip():
+                    refusal = getattr(message, "refusal", None)
+                    detail = f"The provider refused the request: {refusal}" if refusal else (
+                        "The provider returned an empty completion."
+                    )
+                    raise self._empty_response_error(
+                        model,
+                        detail,
+                        structured=response_format is not None,
+                    )
 
                 self._logger.log_conversation(
                     prompt=prompt,
@@ -262,6 +350,9 @@ class LLMClient:
                     )
                     await asyncio.sleep(wait)
                 else:
+                    if response_format and self._is_structured_output_compatibility_error(e):
+                        self._logger.log_error(str(e), "llm", {"model": model})
+                        raise self._structured_output_error(model) from e
                     self._logger.log_error(str(e), "llm", {"model": model})
                     raise
 
@@ -275,6 +366,9 @@ class LLMClient:
                 await asyncio.sleep(wait)
 
             except Exception as e:
+                if response_format and self._is_structured_output_compatibility_error(e):
+                    self._logger.log_error(str(e), "llm", {"model": model})
+                    raise self._structured_output_error(model) from e
                 self._logger.log_error(
                     str(e),
                     "llm",

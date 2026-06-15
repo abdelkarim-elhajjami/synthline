@@ -6,7 +6,22 @@ on:
       - main
 
 jobs:
+  minimum-provider-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run full suite with minimum provider SDKs
+        run: |
+          pip install -r requirements.txt pytest pytest-asyncio \
+            "openai==1.60.0" "huggingface_hub==0.32.6"
+          PYTHONPATH=.:server pytest -q
+
   test:
+    needs: minimum-provider-dependencies
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -26,6 +41,32 @@ jobs:
       - name: Run tests
         run: |
           PYTHONPATH=.:server pytest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Verify frontend
+        run: |
+          npm ci --prefix web
+          npm audit --omit=dev --audit-level=high --prefix web
+          npm run build --prefix web
+
+      - name: Verify production container
+        run: |
+          docker build -t synthline-release-check .
+          docker run -d --name synthline-release-check -p 7861:7860 synthline-release-check
+          trap 'docker rm -f synthline-release-check' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:7861/api/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs synthline-release-check
+          exit 1
 
   deploy:
     needs: test

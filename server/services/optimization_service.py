@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional
 from dependencies import Dependencies
 from synthline._runtime import runtime_from_deps
 from synthline.client import Synthline
+from synthline.types import PromptUpdateEvent
+from utils.errors import operation_error_message
 from utils.websocket import send_to_connection
 
 
@@ -77,30 +79,24 @@ async def run_optimization(
                 failure_message="Failed to send progress",
             )
 
-        async def prompt_update_callback(
-            prompt: str,
-            score: float,
-            iteration: int,
-            n_iterations: int,
-            atomic_config_index: int,
-            total_configs: int,
-        ) -> None:
+        async def prompt_update_callback(event: PromptUpdateEvent) -> None:
             await send_to_connection(
                 system_ctx=deps.system_ctx,
                 connection_id=connection_id,
                 payload={
                     "type": "prompt_update",
-                    "prompt": prompt,
-                    "score": score,
-                    "iteration": iteration,
-                    "atomic_config_index": atomic_config_index,
-                    "total_configs": total_configs,
+                    "prompt": event.prompt,
+                    "score": event.score,
+                    "iteration": event.iteration,
+                    "atomic_config_index": event.config_index,
+                    "total_configs": event.total_configs,
                     "operation": "optimization",
                     "operation_id": operation_id,
                     "message": "Optimizing prompts",
                     "detail": (
-                        f"Config {(atomic_config_index or 0) + 1}/{total_configs}, "
-                        f"iteration {iteration}/{n_iterations}, best score {score:.3f}"
+                        f"Config {(event.config_index or 0) + 1}/{event.total_configs}, "
+                        f"iteration {event.iteration}/{event.total_iterations}, "
+                        f"best score {event.score:.3f}"
                     ),
                 },
                 logger=deps.logger,
@@ -155,7 +151,7 @@ async def run_optimization(
             connection_id=connection_id,
             payload={
                 "type": "error",
-                "message": f"Optimization error: {error_message}",
+                "message": operation_error_message("optimization", e),
                 "operation": "optimization",
                 "operation_id": operation_id,
             },

@@ -2,6 +2,11 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from synthline.core.pace import PACE
+from synthline.errors import (
+    StructuredOutputCompatibilityError,
+    StructuredOutputError,
+    StructuredOutputResponseError,
+)
 
 
 @pytest.fixture
@@ -72,6 +77,26 @@ def test_optimize_batch_flow(pace_instance, mock_llm):
     asyncio.run(run())
 
 
+def test_optimize_batch_normalizes_string_sample_count(pace_instance):
+    import asyncio
+
+    async def run():
+        pace_instance._optimize_atomic_prompt = AsyncMock(return_value=("prompt", 0.5))
+
+        await pace_instance.optimize_batch(
+            atomic_configs=[{"prompt": "Initial prompt"}],
+            features={"samples_per_prompt": "2", "pace_alpha": 0.0},
+            n_iterations=1,
+            n_actors=1,
+            n_candidates=1,
+        )
+
+        sent_features = pace_instance._optimize_atomic_prompt.call_args.kwargs["features"]
+        assert sent_features["samples_per_prompt"] == 2
+
+    asyncio.run(run())
+
+
 def test_evaluate_prompt_logic(pace_instance):
     pace_instance._diversity_score = MagicMock(return_value=0.65)
 
@@ -80,10 +105,10 @@ def test_evaluate_prompt_logic(pace_instance):
     score = pace_instance._evaluate_prompt([raw_completion], samples_per_prompt=2, features=features)
     assert score == pytest.approx(0.65)
 
-    score_invalid = pace_instance._evaluate_prompt(
-        ["Invalid JSON"], samples_per_prompt=2, features=features
-    )
-    assert score_invalid == 0.0
+    with pytest.raises(StructuredOutputError, match="invalid JSON"):
+        pace_instance._evaluate_prompt(
+            ["Invalid JSON"], samples_per_prompt=2, features=features
+        )
 
 
 def test_update_prompt_handles_failure(pace_instance, mock_llm, mock_logger):
@@ -99,7 +124,7 @@ def test_update_prompt_handles_failure(pace_instance, mock_llm, mock_logger):
     asyncio.run(run())
 
 
-def test_optimize_batch_skips_failed_configs(pace_instance):
+def test_optimize_batch_raises_when_a_config_fails(pace_instance):
     import asyncio
 
     async def run():
@@ -113,17 +138,124 @@ def test_optimize_batch_skips_failed_configs(pace_instance):
         atomic_configs = [{"prompt": "p1"}, {"prompt": "p2"}]
         features = {"samples_per_prompt": 1, "llm": "gpt-4"}
 
-        results = await pace_instance.optimize_batch(
-            atomic_configs=atomic_configs,
-            features=features,
-            n_iterations=1,
-            n_actors=1,
-            n_candidates=1,
-        )
+        with pytest.raises(RuntimeError, match="Provider failed"):
+            await pace_instance.optimize_batch(
+                atomic_configs=atomic_configs,
+                features=features,
+                n_iterations=1,
+                n_actors=1,
+                n_candidates=1,
+            )
 
-        # One config failed, one succeeded — returns only successful
-        assert len(results) == 1
-        assert results[0].prompt == "prompt_ok"
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"n_iterations": 0, "n_actors": 1, "n_candidates": 1}, "n_iterations"),
+        ({"n_iterations": 1, "n_actors": 0, "n_candidates": 1}, "n_actors"),
+        ({"n_iterations": 1, "n_actors": 1, "n_candidates": 0}, "n_candidates"),
+    ],
+)
+def test_optimize_batch_rejects_invalid_work_counts(pace_instance, kwargs, message):
+    import asyncio
+
+    async def run():
+        with pytest.raises(ValueError, match=message):
+            await pace_instance.optimize_batch(
+                atomic_configs=[{"prompt": "p1"}],
+                features={"samples_per_prompt": 1, "pace_alpha": 0.0},
+                **kwargs,
+            )
+
+    asyncio.run(run())
+
+
+def test_optimize_batch_rejects_empty_configs(pace_instance):
+    import asyncio
+
+    async def run():
+        with pytest.raises(ValueError, match="at least one atomic configuration"):
+            await pace_instance.optimize_batch(
+                atomic_configs=[],
+                features={"samples_per_prompt": 1, "pace_alpha": 0.0},
+                n_iterations=1,
+                n_actors=1,
+                n_candidates=1,
+            )
+
+    asyncio.run(run())
+
+
+def test_actor_reports_schema_violation_as_response_error(pace_instance, mock_llm):
+    import asyncio
+
+    async def run():
+        mock_llm.get_batch_completions.return_value = ["plain text"]
+
+        with pytest.raises(
+            StructuredOutputResponseError,
+            match="response may have been truncated",
+        ):
+            await pace_instance._run_actor(
+                "Generate a requirement",
+                {
+                    "llm": "ollama/test-model",
+                    "temperature": 0.0,
+                    "top_p": 1.0,
+                    "samples_per_prompt": 1,
+                },
+            )
+        assert mock_llm.get_batch_completions.call_count == 1
+
+    asyncio.run(run())
+
+
+def test_actor_preserves_llm_structured_response_error(pace_instance, mock_llm):
+    import asyncio
+
+    async def run():
+        error = StructuredOutputResponseError("Provider returned no completion choice.")
+        mock_llm.get_batch_completions.side_effect = error
+
+        with pytest.raises(StructuredOutputResponseError) as exc_info:
+            await pace_instance._run_actor(
+                "Generate a requirement",
+                {
+                    "llm": "openai/gpt-4.1-mini",
+                    "temperature": 0.0,
+                    "top_p": 1.0,
+                    "samples_per_prompt": 1,
+                },
+            )
+
+        assert exc_info.value is error
+
+    asyncio.run(run())
+
+
+def test_prompt_update_callback_failure_aborts_optimization(pace_instance):
+    import asyncio
+
+    async def run():
+        pace_instance._run_actor = AsyncMock(return_value='{"samples": ["A", "B"]}')
+        pace_instance._run_critic = AsyncMock(return_value="Improve clarity")
+        pace_instance._update_prompt = AsyncMock(return_value="Improved prompt")
+        pace_instance._evaluate_prompt = MagicMock(return_value=0.8)
+        callback = AsyncMock(side_effect=RuntimeError("WebSocket send failed"))
+
+        with pytest.raises(RuntimeError, match="WebSocket send failed"):
+            await pace_instance._optimize_atomic_prompt(
+                features={"samples_per_prompt": 2, "pace_alpha": 0.0},
+                n_iterations=1,
+                n_actors=1,
+                n_candidates=1,
+                initial_prompt="Initial prompt",
+                prompt_update_callback=callback,
+                atomic_config_index=0,
+                total_configs=1,
+            )
 
     asyncio.run(run())
 

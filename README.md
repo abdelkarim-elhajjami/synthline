@@ -18,7 +18,7 @@ Domain constraints are formalized, validated, and enforced — before any text i
 - **Generate constrained synthetic data** from a feature model that defines valid attribute combinations for your domain — no real data required.
 - **Optimize prompts** with PACE (Prompt Actor-Critic Editing) to maximize diversity and text-attribute alignment before generation.
 - **Verify alignment** with an NLI-based quality gate that checks each instance against its conditioning attributes, with automatic retry on mismatch.
-- **Use any LLM** — OpenAI, OpenRouter, Ollama (local), HuggingFace Inference API.
+- **Use compatible LLMs** through OpenAI, OpenRouter, Ollama (local), or Hugging Face Inference API.
 - **Export results** as CSV, pandas DataFrames, or artifact directories.
 
 ---
@@ -135,8 +135,37 @@ synthline generate --config run.yaml --output out/
 | HuggingFace | `huggingface/...` | `HF_TOKEN`           |
 
 Keys can also be passed directly via `api_keys={"openrouter": "sk-or-..."}`.
+For Ollama, set `OLLAMA_BASE_URL` to the server root, such as
+`http://localhost:11434`; Synthline automatically uses its OpenAI-compatible `/v1` API.
 
-> **Note:** Models must support structured output (JSON schema via `response_format`). Most recent OpenAI and OpenRouter models do; check your provider's documentation for specifics.
+> **Reasoning models are not supported.** Synthline is designed for predictable,
+> high-throughput synthetic data sampling. Reasoning models are generally slower and costlier,
+> and many reject the `temperature` and `top_p` controls Synthline uses. Select a standard chat
+> or instruct model; known reasoning families and explicit reasoning options fail immediately
+> with an actionable error.
+
+> **Required:** The selected LLM must support **strict structured outputs with JSON Schema**
+> (`response_format.type = "json_schema"`). JSON mode alone is not sufficient. Synthline does
+> not fall back to plaintext or suppress provider/schema errors. Choosing a compatible model is
+> the user's responsibility.
+
+Alignment verification also fails loudly if its NLI scorer cannot run. Infrastructure failures
+are never treated as low-scoring samples.
+
+Compatibility is determined by the **model + provider + endpoint** combination. The same model
+can support structured outputs through one serving stack and not through another.
+
+The Web UI lists only OpenRouter models that advertise strict structured outputs and every
+standard sampling parameter Synthline sends, and removes known reasoning-model families.
+Generation requests require OpenRouter to route only through providers that support the
+requested parameters. OpenAI, Hugging Face, Ollama, and other model catalogs do not expose an
+equally reliable per-model capability flag through the endpoints Synthline uses, so verify those
+models against the provider documentation before selecting them:
+
+- [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
+- [OpenAI structured outputs](https://platform.openai.com/docs/guides/structured-outputs)
+- [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs)
+- [Mistral structured outputs](https://docs.mistral.ai/studio-api/conversations/structured-output)
 
 ---
 

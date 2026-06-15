@@ -1,6 +1,7 @@
 import { FormData, GenerationOutput } from "@/app/types";
 import { getSessionId } from "@/lib/session";
 
+import { responseErrorMessage } from "./http-error";
 import { UiError } from "./types";
 
 interface GenerateActionParams {
@@ -72,8 +73,7 @@ export async function runGenerateAction(params: GenerateActionParams): Promise<b
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || "Generation failed");
+            throw new Error(await responseErrorMessage(response, "Generation failed"));
         }
         return true;
     } catch (err) {

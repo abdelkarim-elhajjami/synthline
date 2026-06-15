@@ -1,6 +1,7 @@
 import { FormData, GenerationOutput } from "@/app/types";
 import { getSessionId } from "@/lib/session";
 
+import { responseErrorMessage } from "./http-error";
 import { UiError } from "./types";
 
 interface OptimizeActionParams {
@@ -52,8 +53,7 @@ export async function runOptimizeAction(params: OptimizeActionParams): Promise<b
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || "Prompt optimization failed");
+            throw new Error(await responseErrorMessage(response, "Prompt optimization failed"));
         }
         return true;
     } catch (err) {

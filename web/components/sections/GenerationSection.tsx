@@ -165,6 +165,9 @@ export function GenerationSection() {
                             </Command>
                         </PopoverContent>
                     </Popover>
+                    <p className="text-xs text-[var(--foreground-muted)] opacity-70 mt-2">
+                        Synthline requires strict JSON Schema structured outputs.
+                    </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

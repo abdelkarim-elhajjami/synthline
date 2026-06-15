@@ -4,7 +4,7 @@ Parsing utilities for structured LLM outputs.
 import json
 from typing import List
 
-from synthline.types import ParseResult
+from synthline.errors import StructuredOutputError
 
 
 def parse_completion(text: str, expected_count: int) -> List[str]:
@@ -17,40 +17,40 @@ def parse_completion(text: str, expected_count: int) -> List[str]:
     Returns:
         List of sample texts.
     """
-    return parse_completion_with_meta(text, expected_count).samples
+    requirement = "Synthline requires strict JSON Schema structured outputs."
+    if not isinstance(text, str) or not text.strip():
+        raise StructuredOutputError(f"The model returned no text. {requirement}")
 
-
-def parse_completion_with_meta(text: str, expected_count: int) -> ParseResult:
-    """Parse completion into a :class:`ParseResult`.
-
-    ``method`` is one of:
-    - ``"json"``      – valid JSON parsed successfully
-    - ``"plaintext"`` – JSON parsing failed; raw text returned as-is
-    """
-    stripped = text.strip()
-
-    # Try structured output: {"samples": ["...", "..."]}
-    samples = _try_unwrap_structured(stripped)
-    if samples:
-        return ParseResult(samples=samples, degraded=False, method="json")
-
-    # Fallback: raw text as single sample.
-    # Degraded if we expected structured output (multiple samples).
-    return ParseResult(samples=[stripped], degraded=expected_count > 1, method="plaintext")
-
-
-def _try_unwrap_structured(text: str) -> List[str]:
-    """Unwrap structured output: {"samples": ["...", ...]} → list of strings."""
-    if not text.startswith('{'):
-        return []
     try:
         data = json.loads(text)
-        if isinstance(data, dict):
-            # Prefer the "samples" key (matches samples_schema()), then fall back to any key
-            candidates = [data["samples"]] if "samples" in data else data.values()
-            for value in candidates:
-                if isinstance(value, list) and value and all(isinstance(item, str) for item in value):
-                    return [item.strip() for item in value if item.strip()]
-    except Exception:
-        pass  # Malformed JSON — fall through to plaintext path
-    return []
+    except json.JSONDecodeError as exc:
+        raise StructuredOutputError(
+            f"The model returned invalid JSON instead of the required schema. {requirement}"
+        ) from exc
+
+    if not isinstance(data, dict) or set(data) != {"samples"}:
+        raise StructuredOutputError(
+            'Expected exactly one top-level "samples" field. '
+            f"{requirement}"
+        )
+
+    samples = data["samples"]
+    if not isinstance(samples, list):
+        raise StructuredOutputError(
+            'Expected "samples" to be an array of strings. '
+            f"{requirement}"
+        )
+
+    if len(samples) != expected_count:
+        raise StructuredOutputError(
+            f"Expected exactly {expected_count} samples, received {len(samples)}. "
+            f"{requirement}"
+        )
+
+    if any(not isinstance(item, str) or not item.strip() for item in samples):
+        raise StructuredOutputError(
+            'Expected every item in "samples" to be a non-empty string. '
+            f"{requirement}"
+        )
+
+    return [item.strip() for item in samples]

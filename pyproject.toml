@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "synthline"
-version = "0.2.0"
+version = "0.3.0"
 description = "Feature Model–Guided Synthetic Data Generator"
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,14 +22,14 @@ classifiers = [
     "Topic :: Text Processing :: Linguistic",
 ]
 dependencies = [
-    "openai>=1.0.0",
+    "openai>=1.60.0",
     "pandas>=2.0.0",
     "sentence-transformers>=2.2.0",
     "torch>=2.0.0",
     "transformers>=4.40.0",
     "scikit-learn>=1.0.0",
     "numpy>=1.21.0",
-    "huggingface_hub>=0.20.0",
+    "huggingface_hub>=0.32.6",
     "PyYAML>=6.0.0",
     "pydantic>=2.0.0",
 ]

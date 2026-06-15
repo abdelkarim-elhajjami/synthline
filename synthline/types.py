@@ -74,35 +74,10 @@ class OptimizedPrompt:
 
 
 @dataclass
-class ParseResult:
-    """Result of parsing an LLM completion into sample texts."""
-
-    samples: List[str]
-    degraded: bool = False
-    method: str = "plaintext"
-
-
-@dataclass
 class GenerationResult:
-    """Bundles raw samples with generation diagnostics.
-
-    Replaces the old pattern where Generator stored flags as mutable
-    instance state that callers had to read after calling ``generate()``.
-    """
+    """Raw samples produced by :class:`Generator`."""
 
     samples: List[Dict[str, Any]]
-    fewer_samples_received: bool = False
-    parsing_degraded: bool = False
-
-
-@dataclass
-class LLMCallResult:
-    """Result of a single LLM generation call within :class:`Generator`."""
-
-    samples: List[Dict[str, Any]]
-    valid_count: int
-    parsing_degraded: bool = False
-    parse_method: str = "plaintext"
 
 
 # ---------------------------------------------------------------------------

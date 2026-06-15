@@ -33,8 +33,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy backend requirements
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install CPU-only PyTorch first so CPU deployments do not pull CUDA runtimes.
+ARG TORCH_VERSION=2.8.0
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        "torch==${TORCH_VERSION}" && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Create necessary directories
 RUN mkdir -p /home/appuser/.cache/huggingface

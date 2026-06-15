@@ -208,10 +208,6 @@ async def run_verification_loop(
         pending = regen_result.samples
         total_generated += len(pending)
 
-        if regen_result.fewer_samples_received and "fewer_samples_received" not in warnings:
-            warnings.append("fewer_samples_received")
-        if regen_result.parsing_degraded and "parsing_degraded" not in warnings:
-            warnings.append("parsing_degraded")
         if not pending:
             termination_reason = "generation_returned_empty"
             break

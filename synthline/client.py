@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from synthline.core.fm_parser import FM
+from synthline.core.model_compatibility import validate_model_compatibility
 from synthline.core.verification import (
     build_prompt_lookup,
     reconstruct_raw_samples,
@@ -44,9 +45,9 @@ class Synthline:
     top_p : float
         Nucleus sampling probability.
     reasoning : dict | None
-        OpenRouter reasoning parameters for thinking models
-        (e.g. ``{"effort": "high"}`` or ``{"max_tokens": 4096}``).
-        Disabled by default.
+        Unsupported compatibility argument. Synthline rejects reasoning options and
+        reasoning-style models because synthetic data generation relies on predictable,
+        high-throughput sampling controls.
     api_keys : dict | None
         Provider API keys (``{"openrouter": "sk-..."}``).  Falls back to
         environment variables when omitted.
@@ -66,6 +67,7 @@ class Synthline:
         api_keys: Optional[Dict[str, str]] = None,
         debug: bool = False,
     ) -> None:
+        validate_model_compatibility(llm, reasoning)
         self._runtime = create_runtime(
             fm_path=fm,
             glossary_path=glossary,
@@ -102,6 +104,7 @@ class Synthline:
         This is used by Web UI service adapters to avoid re-initializing
         heavy objects that already live in the DI container.
         """
+        validate_model_compatibility(llm, reasoning)
         instance = cls.__new__(cls)
         instance._runtime = runtime
         instance._llm = llm
@@ -529,4 +532,3 @@ def _extract_constraint_features(config: Dict[str, Any]) -> Dict[str, Any]:
         if label and value not in (None, "", []):
             result[label] = value
     return result
-

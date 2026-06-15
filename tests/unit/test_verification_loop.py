@@ -9,6 +9,7 @@ from synthline.core.verification import (
     run_verification_loop,
     _group_rejected_by_config,
 )
+from synthline.errors import AlignmentVerificationError
 from synthline.types import GenerationResult
 
 
@@ -156,6 +157,28 @@ class TestVerificationLoop:
 
             assert len(accepted) == 3
             assert meta["termination_reason"] == "count_reached"
+            generator.generate_for_configs.assert_not_called()
+
+        asyncio.run(run())
+
+    def test_verifier_infrastructure_failure_aborts_without_regeneration(self):
+        async def run():
+            config = _make_config("A")
+            sample = _make_sample("sample", config)
+            verifier = MagicMock()
+            verifier.verify.side_effect = AlignmentVerificationError("NLI unavailable")
+            generator = AsyncMock()
+
+            with pytest.raises(AlignmentVerificationError, match="NLI unavailable"):
+                await _run_loop(
+                    verifier,
+                    generator,
+                    [sample],
+                    self._features(),
+                    threshold=0.6,
+                    samples_needed=1,
+                )
+
             generator.generate_for_configs.assert_not_called()
 
         asyncio.run(run())
@@ -447,35 +470,6 @@ class TestVerificationLoop:
             assert "termination_reason" in meta
             assert "attempt_trace" in meta
             assert "total_generated_across_retries" in meta
-
-        asyncio.run(run())
-
-    def test_warnings_propagated(self):
-        """Warnings from generator are added to warnings list."""
-
-        async def run():
-            config = _make_config("A")
-            bad = _make_sample("bad", config)
-
-            verifier = MagicMock()
-            verifier.verify.side_effect = [
-                ([], [_scored(bad, 0.2)]),
-                ([_scored(_make_sample("ok", config), 0.8)], []),
-            ]
-
-            generator = AsyncMock()
-            generator.generate_for_configs.return_value = GenerationResult(
-                samples=[_make_sample("ok", config)],
-                fewer_samples_received=True,
-                parsing_degraded=True,
-            )
-
-            _, _, warnings = await _run_loop(verifier, generator,
-                [bad], self._features(spp=20), threshold=0.6, samples_needed=1
-            )
-
-            assert "fewer_samples_received" in warnings
-            assert "parsing_degraded" in warnings
 
         asyncio.run(run())
 

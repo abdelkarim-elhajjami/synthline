@@ -32,11 +32,15 @@ def main(argv: Optional[list] = None) -> None:
     # -- optimize -----------------------------------------------------------
     opt = sub.add_parser("optimize", help="Optimize prompts via PACE")
     _add_common_args(opt)
-    opt.add_argument("--llm", required=True, help="LLM model identifier")
+    opt.add_argument(
+        "--llm",
+        required=True,
+        help="LLM model identifier (must support strict JSON Schema structured outputs)",
+    )
     opt.add_argument("--temperature", type=float, default=1.0)
     opt.add_argument("--top-p", type=float, default=1.0)
-    opt.add_argument("--reasoning-effort", choices=["low", "medium", "high"], help="Reasoning effort level for thinking models")
-    opt.add_argument("--reasoning-budget", type=int, help="Max reasoning tokens for thinking models")
+    opt.add_argument("--reasoning-effort", choices=["low", "medium", "high"], help="Unsupported compatibility option; reasoning models are rejected")
+    opt.add_argument("--reasoning-budget", type=int, help="Unsupported compatibility option; reasoning models are rejected")
     opt.add_argument("--alpha", type=float, default=0.5, help="PACE alpha")
     opt.add_argument("--iterations", type=int, default=1, help="PACE iterations")
     opt.add_argument("--actors", type=int, default=4, help="PACE actors")
@@ -47,11 +51,14 @@ def main(argv: Optional[list] = None) -> None:
     gen = sub.add_parser("generate", help="Generate synthetic data")
     _add_common_args(gen)
     gen.add_argument("--prompts", help="Path to saved PromptSet JSON (skip build)")
-    gen.add_argument("--llm", help="LLM model identifier")
+    gen.add_argument(
+        "--llm",
+        help="LLM model identifier (must support strict JSON Schema structured outputs)",
+    )
     gen.add_argument("--temperature", type=float, default=1.0)
     gen.add_argument("--top-p", type=float, default=1.0)
-    gen.add_argument("--reasoning-effort", choices=["low", "medium", "high"], help="Reasoning effort level for thinking models")
-    gen.add_argument("--reasoning-budget", type=int, help="Max reasoning tokens for thinking models")
+    gen.add_argument("--reasoning-effort", choices=["low", "medium", "high"], help="Unsupported compatibility option; reasoning models are rejected")
+    gen.add_argument("--reasoning-budget", type=int, help="Unsupported compatibility option; reasoning models are rejected")
     gen.add_argument("--samples", type=int, help="Number of samples (required unless --verify-input)")
     gen.add_argument("--verify", action="store_true", help="Enable alignment verification")
     gen.add_argument("--verify-threshold", type=float, default=0.5)
@@ -69,14 +76,20 @@ def main(argv: Optional[list] = None) -> None:
         parser.print_help()
         sys.exit(1)
 
-    if args.command == "validate":
-        _cmd_validate(args)
-    elif args.command == "build-prompts":
-        _cmd_build_prompts(args)
-    elif args.command == "optimize":
-        _cmd_optimize(args)
-    elif args.command == "generate":
-        _cmd_generate(args)
+    from synthline.errors import SynthlineError
+
+    try:
+        if args.command == "validate":
+            _cmd_validate(args)
+        elif args.command == "build-prompts":
+            _cmd_build_prompts(args)
+        elif args.command == "optimize":
+            _cmd_optimize(args)
+        elif args.command == "generate":
+            _cmd_generate(args)
+    except SynthlineError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +287,7 @@ def _resolve_config(args: argparse.Namespace) -> Dict[str, Any]:
         if val is not None:
             cfg[key] = val
 
-    # Build reasoning dict from CLI args (--reasoning-effort / --reasoning-budget)
+    # Preserve legacy options so they produce Synthline's explicit compatibility error.
     reasoning_effort = getattr(args, "reasoning_effort", None)
     reasoning_budget = getattr(args, "reasoning_budget", None)
     if reasoning_effort is not None or reasoning_budget is not None:
