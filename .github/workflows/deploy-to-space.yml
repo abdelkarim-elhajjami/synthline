@@ -71,6 +71,8 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    env:
+      HF_SPACE_REPO: abdelkarim-elhajjami/synthline
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -81,14 +83,13 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_USERNAME: ${{ secrets.HF_USERNAME }} 
-          HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
         run: |
-          if [ -z "$HF_TOKEN" ] || [ -z "$HF_USERNAME" ] || [ -z "$HF_SPACE_NAME" ]; then
-            echo "Secrets are missing! Please check HF_TOKEN, HF_USERNAME, and HF_SPACE_NAME."
+          if [ -z "$HF_TOKEN" ] || [ -z "$HF_USERNAME" ]; then
+            echo "Secrets are missing! Please check HF_TOKEN and HF_USERNAME."
             exit 1
           fi
 
-          echo "Pushing to Hugging Face Space: $HF_USERNAME/$HF_SPACE_NAME"
+          echo "Pushing to Hugging Face Space: $HF_SPACE_REPO"
           
           # Remove GitHub-only files not needed on HF Spaces
           rm -rf docs/ .github/ tests/ LICENSE README.md
@@ -125,6 +126,13 @@ SPACE_README
           git add .
           git commit -m "Deploy to Spaces"
           
-          # Force push to the Space
-          git remote add space https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$HF_SPACE_NAME
+          # Force push to the canonical public Space.
+          git remote add space https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_SPACE_REPO
           git push -f space main
+
+          deployed_sha="$(git rev-parse HEAD)"
+          remote_sha="$(git ls-remote https://huggingface.co/spaces/$HF_SPACE_REPO main | awk '{print $1}')"
+          if [ "$remote_sha" != "$deployed_sha" ]; then
+            echo "Space ref verification failed: expected $deployed_sha, got $remote_sha"
+            exit 1
+          fi

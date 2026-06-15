@@ -171,7 +171,7 @@ models against the provider documentation before selecting them:
 
 ## Web UI
 
-A browser-based interface is available on [Hugging Face Spaces](https://huggingface.co/spaces/karimelhajjami/synthline) or self-hosted with Docker.
+A browser-based interface is available on [Hugging Face Spaces](https://huggingface.co/spaces/abdelkarim-elhajjami/synthline) or self-hosted with Docker.
 
 ```bash
 git clone https://github.com/abdelkarim-elhajjami/Synthline.git && cd Synthline && ./dev.sh
