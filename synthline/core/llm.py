@@ -22,6 +22,7 @@ _PROVIDER_PREFIXES = {
     "ilaas/": "ilaas",
     "openai/": "openai",
 }
+_PROVIDER_PREFIX_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*/", re.IGNORECASE)
 
 def _response_format_for_model(
     model_name: str,
@@ -75,6 +76,12 @@ class LLMClient:
         for prefix, provider in _PROVIDER_PREFIXES.items():
             if model.startswith(prefix):
                 return provider
+        if _PROVIDER_PREFIX_PATTERN.match(model):
+            supported = ", ".join(prefix.rstrip("/") for prefix in _PROVIDER_PREFIXES)
+            raise ProviderConfigurationError(
+                f"Unknown model provider prefix in '{model}'. "
+                f"Use one of: {supported}."
+            )
         return "openai"
 
     @staticmethod

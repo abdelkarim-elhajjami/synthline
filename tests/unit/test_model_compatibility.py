@@ -27,8 +27,3 @@ def test_explicit_reasoning_configuration_is_rejected():
             "openrouter/mistralai/ministral-8b",
             {"effort": "high"},
         )
-
-
-def test_huggingface_provider_is_rejected():
-    with pytest.raises(ProviderConfigurationError, match="no longer supports Hugging Face"):
-        validate_model_compatibility("huggingface/meta-llama/Llama-3.3-70B-Instruct")

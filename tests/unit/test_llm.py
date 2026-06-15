@@ -67,6 +67,13 @@ def test_ollama_requires_explicit_configuration():
         llm._get_client("ollama/test-model")
 
 
+def test_unknown_provider_prefix_is_rejected_before_openai_fallback():
+    llm = LLMClient(logger=MagicMock())
+
+    with pytest.raises(ProviderConfigurationError, match="Unknown model provider prefix"):
+        llm._get_client("unknown-provider/test-model")
+
+
 @pytest.mark.parametrize(
     ("configured", "expected"),
     [

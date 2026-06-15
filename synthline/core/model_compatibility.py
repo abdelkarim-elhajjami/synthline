@@ -23,12 +23,6 @@ def validate_model_compatibility(
     reasoning: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Reject models and options outside Synthline's generation contract."""
-    if str(model).strip().lower().startswith("huggingface/"):
-        raise ProviderConfigurationError(
-            "Synthline no longer supports Hugging Face as an LLM provider because "
-            "the Hub catalog does not reliably expose strict JSON Schema structured-output "
-            "compatibility. Choose OpenRouter, OpenAI, or Ollama with a compatible model."
-        )
     if reasoning:
         raise ProviderConfigurationError(
             "Synthline does not support reasoning options. Synthetic data generation "

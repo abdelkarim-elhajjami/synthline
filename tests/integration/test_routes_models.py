@@ -100,12 +100,3 @@ def test_fetch_models_openrouter_success(mock_client_cls):
         headers={"Authorization": "Bearer sk-or-test"},
         params={"supported_parameters": "structured_outputs"},
     )
-
-def test_fetch_models_huggingface_is_not_supported():
-    response = client.post(
-        "/api/models/fetch",
-        json={"provider": "huggingface"},
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Invalid provider"
